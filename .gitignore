@@ -1,0 +1,52 @@
+# Python: arquivos gerados automaticamente
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambientes virtuais e variáveis locais/credenciais
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Testes, cobertura e ferramentas de análise
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Pacotes e builds Python
+build/
+dist/
+*.egg-info/
+
+# Dados obtidos ou gerados localmente
+# Esses arquivos podem ser grandes e podem ser reconstruídos executando a coleta.
+data/raw/
+data/interim/
+data/processed/
+data/external/
+data/manifest.json
+data/manifest.json.corrupt-*
+*.download
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Editores e sistema operacional
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.temp
+~$*
