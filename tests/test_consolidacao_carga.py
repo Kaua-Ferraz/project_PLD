@@ -1,147 +1,112 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 def test_consolidacao_carga():
+    """Valida estrutura, valores e calendário da carga consolidada."""
     raiz = Path(__file__).resolve().parent.parent
     caminho_parquet = raiz / "data" / "interim" / "carga_energia.parquet"
 
     if not caminho_parquet.exists():
         raise FileNotFoundError(
             f"Arquivo não encontrado: {caminho_parquet}. "
-            "Execute a consolidação primeiro."
+            "Execute read_carga() primeiro."
         )
 
     df_carga = pd.read_parquet(caminho_parquet)
 
-    if not pd.api.types.is_datetime64_any_dtype(df_carga["data"]):
-        df_carga["data"] = pd.to_datetime(df_carga["data"])
-
     print("--- Verificação da Consolidação da Carga de Energia ---")
     print("\nDimensões:", df_carga.shape)
-
     print("\nPeríodo:")
     print("Início:", df_carga["data"].min())
     print("Fim:   ", df_carga["data"].max())
 
-    print("\nRegistros por ano (Atenção: 2024 é bissexto, 2026 está incompleto):")
-    print(df_carga.groupby(df_carga["data"].dt.year).size())
+    colunas_esperadas = [
+        "data",
+        "submercado",
+        "carga_mwmed",
+    ]
 
-    print("\nRegistros por submercado:")
-    print(df_carga["submercado"].value_counts())
-
-    print("\nChaves duplicadas (data + submercado):")
-    print(df_carga.duplicated(subset=["data", "submercado"]).sum())
-
-    print("\nValores ausentes por coluna:")
-    print(df_carga.isna().sum())
-
-    print("\nValores de carga negativos:")
-    print((df_carga["carga_mwmed"] < 0).sum())
-
-    print("\nValores de carga iguais a zero:")
-    print((df_carga["carga_mwmed"] == 0).sum())
+    assert not df_carga.empty
+    assert df_carga.columns.tolist() == colunas_esperadas
+    assert pd.api.types.is_datetime64_any_dtype(df_carga["data"])
+    assert pd.api.types.is_numeric_dtype(df_carga["carga_mwmed"])
+    assert df_carga["data"].min() == pd.Timestamp("2021-01-01")
 
     submercados_esperados = {
         "NORTE",
         "NORDESTE",
         "SUDESTE",
-        "SUL"
+        "SUL",
     }
+    submercados_encontrados = set(df_carga["submercado"].unique())
 
-    submercados_encontrados = set(df_carga["submercado"].dropna().unique())
-
-    print("\nSubmercados ausentes:")
-    print(submercados_esperados - submercados_encontrados)
-
-    print("\nSubmercados desconhecidos:")
-    print(submercados_encontrados - submercados_esperados)
-
-    # ---------------------------------------------------------
-    # VERIFICAÇÃO 2: DATAS AUSENTES NO HISTÓRICO (2021 A 2025)
-    # ---------------------------------------------------------
+    print("\nSubmercados encontrados:", sorted(submercados_encontrados))
+    assert submercados_encontrados == submercados_esperados
 
     datas_esperadas = pd.date_range(
-        start="2021-01-01",
-        end="2025-12-31",
+        start=df_carga["data"].min(),
+        end=df_carga["data"].max(),
         freq="D"
     )
+
+    dimensao_esperada = len(datas_esperadas) * len(submercados_esperados)
+    print("\nDimensão esperada:", dimensao_esperada)
+    assert len(df_carga) == dimensao_esperada
+
+    registros_ano_submercado = pd.crosstab(
+        df_carga["data"].dt.year,
+        df_carga["submercado"]
+    )
+    print("\nRegistros por ano e submercado:")
+    print(registros_ano_submercado)
+
+    for ano, linha in registros_ano_submercado.iterrows():
+        inicio_ano = pd.Timestamp(year=ano, month=1, day=1)
+        fim_ano = min(
+            pd.Timestamp(year=ano, month=12, day=31),
+            df_carga["data"].max()
+        )
+        dias_esperados_ano = len(pd.date_range(inicio_ano, fim_ano, freq="D"))
+        assert (linha == dias_esperados_ano).all()
+
+    duplicadas = df_carga.duplicated(subset=["data", "submercado"]).sum()
+    print("\nChaves duplicadas:", duplicadas)
+    assert duplicadas == 0
+
+    valores_ausentes = df_carga.isna().sum()
+    print("\nValores ausentes por coluna:")
+    print(valores_ausentes)
+    assert (valores_ausentes == 0).all()
+
+    valores_invalidos = (df_carga["carga_mwmed"] <= 0).sum()
+    print("\nValores de carga menores ou iguais a zero:", valores_invalidos)
+    assert valores_invalidos == 0
+
+    df_ordenado = (
+        df_carga
+        .sort_values(["data", "submercado"])
+        .reset_index(drop=True)
+    )
+    pd.testing.assert_frame_equal(df_carga, df_ordenado)
 
     datas_existentes = pd.DatetimeIndex(
         df_carga["data"].dt.normalize().unique()
     )
-
     datas_faltantes = datas_esperadas.difference(datas_existentes)
 
-    print("\n--- Verificação de Datas Ausentes (2021-2025) ---")
-    print("Total de dias ausentes:", len(datas_faltantes))
+    print("\nDatas ausentes no conjunto completo:", len(datas_faltantes))
+    assert len(datas_faltantes) == 0
 
-    for ano in range(2021, 2026):
-        faltantes_ano = datas_faltantes[
-            datas_faltantes.year == ano
-        ]
-
-        print(f"\n{ano}: {len(faltantes_ano)} dias ausentes")
-
-        for data in faltantes_ano:
-            print("  ", data.strftime("%d/%m/%Y"))
-
-    df_2026 = df_carga[df_carga["data"].dt.year == 2026]
-
-    if not df_2026.empty:
-        datas_esperadas_2026 = pd.date_range(
-            start="2026-01-01",
-            end=df_2026["data"].max(),
-            freq="D"
-        )
-
-        datas_existentes_2026 = pd.DatetimeIndex(
-            df_2026["data"].dt.normalize().unique()
-        )
-
-        datas_faltantes_2026 = (
-            datas_esperadas_2026.difference(datas_existentes_2026)
-        )
-
-        print("\n--- Verificação de 2026 ---")
-        print("Última data:", df_2026["data"].max())
-        print("Dias ausentes:", len(datas_faltantes_2026))
-
-        for data in datas_faltantes_2026:
-            print("  ", data.strftime("%d/%m/%Y"))
-    # ---------------------------------------------------------
-    # VERIFICAÇÃO 3: DATAS AUSENTES POR SUBMERCADO
-    # ---------------------------------------------------------
-
-    print("\n--- Verificação de Datas Ausentes por Submercado ---")
-
-    faltantes_por_submercado = {}
-
+    print("\nDatas ausentes por submercado:")
     for submercado, grupo in df_carga.groupby("submercado"):
         datas_submercado = pd.DatetimeIndex(
             grupo["data"].dt.normalize().unique()
         )
-
-        faltantes = datas_esperadas.difference(datas_submercado)
-
-        faltantes_por_submercado[submercado] = faltantes
-
-        print(f"\n{submercado}: {len(faltantes)} dias ausentes")
-
-        for data in faltantes:
-            print("  ", data.strftime("%d/%m/%Y"))
-
-    # Verifica se todos os submercados possuem as mesmas lacunas
-    listas_faltantes = list(faltantes_por_submercado.values())
-
-    if listas_faltantes:
-        mesmas_lacunas = all(
-            listas_faltantes[0].equals(faltantes)
-            for faltantes in listas_faltantes[1:]
-        )
-
-        print("\nTodos os submercados possuem as mesmas datas ausentes?",
-              "SIM" if mesmas_lacunas else "NÃO")
+        faltantes_submercado = datas_esperadas.difference(datas_submercado)
+        print(submercado, ":", len(faltantes_submercado))
+        assert len(faltantes_submercado) == 0
 
     print("\n" + "-" * 42)
 

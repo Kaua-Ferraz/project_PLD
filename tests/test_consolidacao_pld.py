@@ -1,103 +1,120 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 def test_consolidacao_pld():
+    """Valida estrutura, valores e calendário do PLD consolidado."""
     raiz = Path(__file__).resolve().parent.parent
     caminho_parquet = raiz / "data" / "interim" / "pld.parquet"
 
     if not caminho_parquet.exists():
         raise FileNotFoundError(
             f"Arquivo não encontrado: {caminho_parquet}. "
-            "Execute a consolidação primeiro."
+            "Execute read_pld() primeiro."
         )
 
     df_pld = pd.read_parquet(caminho_parquet)
 
-    if not pd.api.types.is_datetime64_any_dtype(df_pld["data"]):
-        df_pld["data"] = pd.to_datetime(df_pld["data"])
-
     print("--- Verificação da Consolidação do PLD ---")
     print("\nDimensões:", df_pld.shape)
-
     print("\nPeríodo:")
     print("Início:", df_pld["data"].min())
     print("Fim:   ", df_pld["data"].max())
 
-    print("\nRegistros por ano (Atenção: 2024 é bissexto, 2026 está incompleto):")
-    print(df_pld.groupby(df_pld["data"].dt.year).size())
+    colunas_esperadas = [
+        "data",
+        "submercado",
+        "pld_medio_dia",
+    ]
 
-    print("\nRegistros por submercado:")
-    print(df_pld["submercado"].value_counts())
+    assert not df_pld.empty
+    assert df_pld.columns.tolist() == colunas_esperadas
+    assert pd.api.types.is_datetime64_any_dtype(df_pld["data"])
+    assert pd.api.types.is_numeric_dtype(df_pld["pld_medio_dia"])
+    assert df_pld["data"].min() == pd.Timestamp("2021-01-08")
 
-    print("\nChaves duplicadas (data + submercado):")
-    print(df_pld.duplicated(subset=["data", "submercado"]).sum())
+    submercados_esperados = {
+        "NORTE",
+        "NORDESTE",
+        "SUDESTE",
+        "SUL",
+    }
+    submercados_encontrados = set(df_pld["submercado"].unique())
 
-    print("\nValores ausentes por coluna:")
-    print(df_pld.isna().sum())
+    print("\nSubmercados encontrados:", sorted(submercados_encontrados))
+    assert submercados_encontrados == submercados_esperados
 
-    # ---------------------------------------------------------
-    # VERIFICAÇÃO 2: DATAS AUSENTES NO HISTÓRICO (2021 A 2025)
-    # ---------------------------------------------------------
+    # Estas lacunas já existem nos CSVs da CCEE e são preservadas.
+    # Se a fonte for corrigida, o teste falhará para que a mudança seja analisada.
+    datas_ausentes_esperadas = pd.DatetimeIndex([
+        "2021-08-07",
+        "2021-08-28",
+        "2022-01-02",
+        "2022-01-08",
+        "2022-02-20",
+        "2022-02-22",
+    ])
 
-    datas_esperadas = pd.date_range(
-        start="2021-01-01",
-        end="2025-12-31",
+    datas_calendario = pd.date_range(
+        start=df_pld["data"].min(),
+        end=df_pld["data"].max(),
         freq="D"
     )
+    datas_esperadas = datas_calendario.difference(datas_ausentes_esperadas)
+
+    dimensao_esperada = len(datas_esperadas) * len(submercados_esperados)
+    print("\nDimensão esperada:", dimensao_esperada)
+    assert len(df_pld) == dimensao_esperada
+
+    registros_ano_submercado = pd.crosstab(
+        df_pld["data"].dt.year,
+        df_pld["submercado"]
+    )
+    print("\nRegistros por ano e submercado:")
+    print(registros_ano_submercado)
+
+    for ano, linha in registros_ano_submercado.iterrows():
+        dias_esperados_ano = (datas_esperadas.year == ano).sum()
+        assert (linha == dias_esperados_ano).all()
+
+    duplicadas = df_pld.duplicated(subset=["data", "submercado"]).sum()
+    print("\nChaves duplicadas:", duplicadas)
+    assert duplicadas == 0
+
+    valores_ausentes = df_pld.isna().sum()
+    print("\nValores ausentes por coluna:")
+    print(valores_ausentes)
+    assert (valores_ausentes == 0).all()
+
+    valores_negativos = (df_pld["pld_medio_dia"] < 0).sum()
+    print("\nValores negativos de PLD:", valores_negativos)
+    assert valores_negativos == 0
+
+    df_ordenado = (
+        df_pld
+        .sort_values(["data", "submercado"])
+        .reset_index(drop=True)
+    )
+    pd.testing.assert_frame_equal(df_pld, df_ordenado)
 
     datas_existentes = pd.DatetimeIndex(
         df_pld["data"].dt.normalize().unique()
     )
+    datas_ausentes = datas_calendario.difference(datas_existentes)
 
-    datas_faltantes = datas_esperadas.difference(datas_existentes)
+    print("\nDatas ausentes no conjunto completo:")
+    print([data.strftime("%d/%m/%Y") for data in datas_ausentes])
+    assert datas_ausentes.equals(datas_ausentes_esperadas)
 
-    print("\n--- Verificação de Datas Ausentes (2021-2025) ---")
-    print("Total de dias ausentes:", len(datas_faltantes))
-
-    for ano in range(2021, 2026):
-        faltantes_ano = datas_faltantes[
-            datas_faltantes.year == ano
-        ]
-
-        print(f"\n{ano}: {len(faltantes_ano)} dias ausentes")
-
-        for data in faltantes_ano:
-            print("  ", data.strftime("%d/%m/%Y"))
-
-    # ---------------------------------------------------------
-    # VERIFICAÇÃO 3: DATAS AUSENTES POR SUBMERCADO
-    # ---------------------------------------------------------
-
-    print("\n--- Verificação de Datas Ausentes por Submercado ---")
-
-    faltantes_por_submercado = {}
-
+    print("\nDatas ausentes por submercado:")
     for submercado, grupo in df_pld.groupby("submercado"):
         datas_submercado = pd.DatetimeIndex(
             grupo["data"].dt.normalize().unique()
         )
-
-        faltantes = datas_esperadas.difference(datas_submercado)
-
-        faltantes_por_submercado[submercado] = faltantes
-
-        print(f"\n{submercado}: {len(faltantes)} dias ausentes")
-
-        for data in faltantes:
-            print("  ", data.strftime("%d/%m/%Y"))
-
-    # Verifica se todos os submercados possuem as mesmas lacunas
-    listas_faltantes = list(faltantes_por_submercado.values())
-
-    if listas_faltantes:
-        mesmas_lacunas = all(
-            listas_faltantes[0].equals(faltantes)
-            for faltantes in listas_faltantes[1:]
-        )
-
-        print("\nTodos os submercados possuem as mesmas datas ausentes?",
-              "SIM" if mesmas_lacunas else "NÃO")
+        faltantes_submercado = datas_calendario.difference(datas_submercado)
+        print(submercado, ":", len(faltantes_submercado))
+        assert faltantes_submercado.equals(datas_ausentes_esperadas)
 
     print("\n" + "-" * 42)
 

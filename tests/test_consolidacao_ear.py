@@ -1,8 +1,10 @@
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 
 
 def test_consolidacao_ear():
+    """Valida estrutura, valores e calendário da EAR consolidada."""
     raiz = Path(__file__).resolve().parent.parent
     caminho_parquet = raiz / "data" / "interim" / "ear.parquet"
 
@@ -13,9 +15,6 @@ def test_consolidacao_ear():
         )
 
     df_ear = pd.read_parquet(caminho_parquet)
-
-    if not pd.api.types.is_datetime64_any_dtype(df_ear["data"]):
-        df_ear["data"] = pd.to_datetime(df_ear["data"])
 
     print("--- Verificação da Consolidação da EAR ---")
     print("\nDimensões:", df_ear.shape)
@@ -31,7 +30,12 @@ def test_consolidacao_ear():
         "ear_percentual",
     ]
 
+    assert not df_ear.empty
     assert df_ear.columns.tolist() == colunas_esperadas
+    assert pd.api.types.is_datetime64_any_dtype(df_ear["data"])
+    assert pd.api.types.is_numeric_dtype(df_ear["ear_max_mwmes"])
+    assert pd.api.types.is_numeric_dtype(df_ear["ear_mwmes"])
+    assert pd.api.types.is_numeric_dtype(df_ear["ear_percentual"])
     assert df_ear["data"].min() == pd.Timestamp("2021-01-01")
 
     submercados_esperados = {
@@ -84,7 +88,10 @@ def test_consolidacao_ear():
     print("EAR máxima <= 0:", (df_ear["ear_max_mwmes"] <= 0).sum())
     print("EAR verificada <= 0:", (df_ear["ear_mwmes"] <= 0).sum())
     print("EAR verificada > máxima:", (df_ear["ear_mwmes"] > df_ear["ear_max_mwmes"]).sum())
-    print("Percentual fora de ]0, 100]:", (~df_ear["ear_percentual"].between(0, 100, inclusive="right")).sum())
+    percentuais_invalidos = (
+        ~df_ear["ear_percentual"].between(0, 100, inclusive="right")
+    ).sum()
+    print("Percentual fora de ]0, 100]:", percentuais_invalidos)
 
     assert (df_ear["ear_max_mwmes"] > 0).all()
     assert (df_ear["ear_mwmes"] > 0).all()
@@ -103,6 +110,13 @@ def test_consolidacao_ear():
 
     print("Maior diferença percentual:", diferenca_percentual.max())
     assert (diferenca_percentual <= 0.01).all()
+
+    df_ordenado = (
+        df_ear
+        .sort_values(["data", "submercado"])
+        .reset_index(drop=True)
+    )
+    pd.testing.assert_frame_equal(df_ear, df_ordenado)
 
     datas_existentes = pd.DatetimeIndex(
         df_ear["data"].dt.normalize().unique()

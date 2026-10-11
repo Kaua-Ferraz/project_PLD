@@ -1,70 +1,82 @@
+"""Funções de limpeza e validação dos dados usados no projeto."""
+
 import pandas as pd
 
+
 def clean_pld(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza e valida um arquivo de PLD médio diário.
+
+    Duplicatas idênticas são removidas somente depois da verificação de que
+    não existem preços diferentes para a mesma data e submercado.
+    """
     df = dataframe.copy()
 
-    df["DIA"] = pd.to_datetime(
-        df["DIA"],
+    colunas_esperadas = {
+        "DIA",
+        "SUBMERCADO",
+        "PLD_MEDIA_DIA",
+    }
+
+    colunas_ausentes = colunas_esperadas - set(df.columns)
+
+    if colunas_ausentes:
+        raise ValueError(
+            "Colunas de PLD ausentes: " + ", ".join(sorted(colunas_ausentes))
+        )
+
+    if df.empty:
+        raise ValueError("O arquivo de PLD está vazio!")
+
+    df = df.rename(columns={
+        "DIA": "data",
+        "SUBMERCADO": "submercado",
+        "PLD_MEDIA_DIA": "pld_medio_dia",
+    })
+
+    df["submercado"] = (
+        df["submercado"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+    )
+
+    df["data"] = pd.to_datetime(
+        df["data"],
         format="%d/%m/%Y",
         errors="raise"
     )
 
-    df["PLD_MEDIA_DIA"] = pd.to_numeric(
-        df["PLD_MEDIA_DIA"],
+    df["pld_medio_dia"] = pd.to_numeric(
+        df["pld_medio_dia"],
         errors="raise"
     )
 
-    chaves = ["DIA", "SUBMERCADO"]
+    colunas_finais = [
+        "data",
+        "submercado",
+        "pld_medio_dia",
+    ]
 
-    conflitos = (
-        df.groupby(chaves)["PLD_MEDIA_DIA"]
-          .nunique()
-    )
+    if df[colunas_finais].isna().any().any():
+        raise ValueError("Foram encontrados valores ausentes nos dados de PLD!")
 
-    if (conflitos > 1).any():
-        raise ValueError("Foram encontrados PLDs conflitantes!")
-
-    df = df.drop_duplicates()
-
-    if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas!")
-    
-    df = df.rename(columns={
-        "DIA": "data",
-        "SUBMERCADO": "submercado",
-        "PLD_MEDIA_DIA": "pld_medio_dia"
-    })
-
-    df = df[["data", "submercado", "pld_medio_dia"]]
-
-    return df
-
-def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
-    df = dataframe.copy()
-
-    df = df.rename(columns={
-        "id_subsistema": "submercado",
-        "din_instante": "data",
-        "val_cargaenergiamwmed": "carga_mwmed"
-    })
-
-    df["data"] = pd.to_datetime(
-        df["data"],
-        format="%Y-%m-%d",
-        errors="raise"
-    )
-
-    regioes = {
-        "N": "NORTE",
-        "NE": "NORDESTE",
-        "S": "SUL",
-        "SE": "SUDESTE"
+    submercados_esperados = {
+        "NORTE",
+        "NORDESTE",
+        "SUDESTE",
+        "SUL",
     }
+    submercados_encontrados = set(df["submercado"].unique())
+    submercados_desconhecidos = submercados_encontrados - submercados_esperados
 
-    df["submercado"] = df["submercado"].map(regioes)
+    if submercados_desconhecidos:
+        raise ValueError(
+            "Foram encontrados submercados desconhecidos no PLD: "
+            + ", ".join(sorted(submercados_desconhecidos))
+        )
 
-    if df["submercado"].isna().any():
-        raise ValueError("Foram encontrados subsistemas desconhecidos!")
+    if (df["pld_medio_dia"] < 0).any():
+        raise ValueError("Foram encontrados valores negativos de PLD!")
 
     chaves = ["data", "submercado"]
 
@@ -73,14 +85,127 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
         keep=False
     )
 
-    print("Chaves duplicadas:", duplicadas.sum())
+    print("Chaves duplicadas de PLD:", duplicadas.sum())
+
+    conflitos = (
+        df.groupby(chaves)["pld_medio_dia"]
+        .nunique()
+    )
+
+    print("Conflitos de PLD:", (conflitos > 1).sum())
+
+    if (conflitos > 1).any():
+        raise ValueError("Foram encontrados PLDs conflitantes!")
+
+    df = df.drop_duplicates(subset=chaves)
+
+    if df.duplicated(subset=chaves).any():
+        raise ValueError("Ainda existem chaves duplicadas nos dados de PLD!")
+
+    df = df[colunas_finais]
+
+    return df
+
+
+def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza e valida os dados diários de carga por subsistema.
+
+    A função confere a correspondência entre código e nome do subsistema e
+    mantém uma única carga positiva por data e submercado.
+    """
+    df = dataframe.copy()
+
+    colunas_esperadas = {
+        "id_subsistema",
+        "nom_subsistema",
+        "din_instante",
+        "val_cargaenergiamwmed",
+    }
+
+    colunas_ausentes = colunas_esperadas - set(df.columns)
+
+    if colunas_ausentes:
+        raise ValueError(
+            "Colunas de carga ausentes: " + ", ".join(sorted(colunas_ausentes))
+        )
+
+    if df.empty:
+        raise ValueError("O arquivo de carga está vazio!")
+
+    df = df.rename(columns={
+        "id_subsistema": "submercado",
+        "din_instante": "data",
+        "val_cargaenergiamwmed": "carga_mwmed",
+    })
+
+    df["submercado"] = df["submercado"].astype("string").str.strip()
+    df["nom_subsistema"] = df["nom_subsistema"].astype("string").str.strip()
+
+    df["data"] = pd.to_datetime(
+        df["data"],
+        format="%Y-%m-%d",
+        errors="raise"
+    )
+
+    df["carga_mwmed"] = pd.to_numeric(
+        df["carga_mwmed"],
+        errors="raise"
+    )
+
+    colunas_para_validar = [
+        "data",
+        "submercado",
+        "nom_subsistema",
+        "carga_mwmed",
+    ]
+
+    if df[colunas_para_validar].isna().any().any():
+        raise ValueError("Foram encontrados valores ausentes nos dados de carga!")
+
+    nomes_originais = {
+        "N": "Norte",
+        "NE": "Nordeste",
+        "S": "Sul",
+        "SE": "Sudeste/Centro-Oeste",
+    }
+
+    nomes_esperados = df["submercado"].map(nomes_originais)
+
+    if nomes_esperados.isna().any():
+        raise ValueError("Foram encontrados subsistemas desconhecidos na carga!")
+
+    if (nomes_esperados != df["nom_subsistema"]).any():
+        raise ValueError(
+            "Existem divergências entre o código e o nome do subsistema na carga!"
+        )
+
+    regioes = {
+        "N": "NORTE",
+        "NE": "NORDESTE",
+        "S": "SUL",
+        "SE": "SUDESTE",
+    }
+
+    df["submercado"] = df["submercado"].map(regioes)
+
+    if (df["carga_mwmed"] <= 0).any():
+        raise ValueError("Existem valores de carga menores ou iguais a zero!")
+
+    chaves = ["data", "submercado"]
+
+    duplicadas = df.duplicated(
+        subset=chaves,
+        keep=False
+    )
+
+    print("Chaves duplicadas de carga:", duplicadas.sum())
 
     conflitos = (
         df.groupby(chaves)["carga_mwmed"]
         .nunique()
     )
 
-    print("Conflitos:", (conflitos > 1).sum())
+    print("Conflitos de carga:", (conflitos > 1).sum())
 
     if (conflitos > 1).any():
         raise ValueError("Existem valores conflitantes de carga!")
@@ -88,7 +213,7 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
     df = df.drop_duplicates(subset=chaves)
 
     if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas!")
+        raise ValueError("Ainda existem chaves duplicadas nos dados de carga!")
 
     df = df[["data", "submercado", "carga_mwmed"]]
 
@@ -96,7 +221,11 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
 
 
 def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
-    """Limpa os dados diários de Energia Armazenada por subsistema."""
+    """Padroniza e valida os dados diários de EAR por subsistema.
+
+    São mantidas a capacidade máxima, a EAR absoluta em MWmês e a ocupação
+    percentual. Nenhuma dessas medidas é substituída pela outra.
+    """
     df = dataframe.copy()
 
     colunas_esperadas = {
@@ -114,6 +243,9 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(
             "Colunas de EAR ausentes: " + ", ".join(sorted(colunas_ausentes))
         )
+
+    if df.empty:
+        raise ValueError("O arquivo de EAR está vazio!")
 
     df = df.rename(columns={
         "id_subsistema": "submercado",
@@ -146,11 +278,21 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
             errors="raise"
         )
 
+    colunas_para_validar = [
+        "data",
+        "submercado",
+        "nom_subsistema",
+        *colunas_numericas,
+    ]
+
+    if df[colunas_para_validar].isna().any().any():
+        raise ValueError("Foram encontrados valores ausentes nos dados de EAR!")
+
     regioes = {
         "N": "NORTE",
         "NE": "NORDESTE",
         "S": "SUL",
-        "SE": "SUDESTE"
+        "SE": "SUDESTE",
     }
 
     nomes_esperados = df["submercado"].map(regioes)
@@ -159,20 +301,11 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Foram encontrados subsistemas desconhecidos na EAR!")
 
     if (nomes_esperados != df["nom_subsistema"]).any():
-        raise ValueError("Existem divergências entre o código e o nome do subsistema!")
+        raise ValueError(
+            "Existem divergências entre o código e o nome do subsistema na EAR!"
+        )
 
     df["submercado"] = nomes_esperados
-
-    colunas_finais = [
-        "data",
-        "submercado",
-        "ear_max_mwmes",
-        "ear_mwmes",
-        "ear_percentual",
-    ]
-
-    if df[colunas_finais].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes nos dados de EAR!")
 
     if (df["ear_max_mwmes"] <= 0).any():
         raise ValueError("Existem valores de EAR máxima menores ou iguais a zero!")
@@ -226,6 +359,160 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
     if df.duplicated(subset=chaves).any():
         raise ValueError("Ainda existem chaves duplicadas nos dados de EAR!")
 
+    colunas_finais = [
+        "data",
+        "submercado",
+        "ear_max_mwmes",
+        "ear_mwmes",
+        "ear_percentual",
+    ]
+    df = df[colunas_finais]
+
+    return df
+
+
+def clean_ena(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Padroniza e valida os dados diários de ENA por subsistema.
+
+    São mantidas as medidas bruta e armazenável, tanto em MWmed quanto em
+    percentual da MLT. Percentuais acima de 100 são válidos para a ENA.
+    """
+    df = dataframe.copy()
+
+    colunas_esperadas = {
+        "id_subsistema",
+        "nom_subsistema",
+        "ena_data",
+        "ena_bruta_regiao_mwmed",
+        "ena_bruta_regiao_percentualmlt",
+        "ena_armazenavel_regiao_mwmed",
+        "ena_armazenavel_regiao_percentualmlt",
+    }
+
+    colunas_ausentes = colunas_esperadas - set(df.columns)
+
+    if colunas_ausentes:
+        raise ValueError(
+            "Colunas de ENA ausentes: " + ", ".join(sorted(colunas_ausentes))
+        )
+
+    if df.empty:
+        raise ValueError("O arquivo de ENA está vazio!")
+
+    df = df.rename(columns={
+        "id_subsistema": "submercado",
+        "ena_data": "data",
+        "ena_bruta_regiao_mwmed": "ena_bruta_mwmed",
+        "ena_bruta_regiao_percentualmlt": "ena_bruta_percentual_mlt",
+        "ena_armazenavel_regiao_mwmed": "ena_armazenavel_mwmed",
+        "ena_armazenavel_regiao_percentualmlt": "ena_armazenavel_percentual_mlt",
+    })
+
+    # Em 2026, alguns códigos possuem espaços no final.
+    df["submercado"] = df["submercado"].astype("string").str.strip()
+    df["nom_subsistema"] = df["nom_subsistema"].astype("string").str.strip()
+
+    df["data"] = pd.to_datetime(
+        df["data"],
+        format="%Y-%m-%d",
+        errors="raise"
+    )
+
+    colunas_numericas = [
+        "ena_bruta_mwmed",
+        "ena_bruta_percentual_mlt",
+        "ena_armazenavel_mwmed",
+        "ena_armazenavel_percentual_mlt",
+    ]
+
+    for coluna in colunas_numericas:
+        df[coluna] = pd.to_numeric(
+            df[coluna],
+            errors="raise"
+        )
+
+    colunas_para_validar = [
+        "data",
+        "submercado",
+        "nom_subsistema",
+        *colunas_numericas,
+    ]
+
+    if df[colunas_para_validar].isna().any().any():
+        raise ValueError("Foram encontrados valores ausentes nos dados de ENA!")
+
+    regioes = {
+        "N": "NORTE",
+        "NE": "NORDESTE",
+        "S": "SUL",
+        "SE": "SUDESTE",
+    }
+
+    nomes_esperados = df["submercado"].map(regioes)
+
+    if nomes_esperados.isna().any():
+        raise ValueError("Foram encontrados subsistemas desconhecidos na ENA!")
+
+    if (nomes_esperados != df["nom_subsistema"]).any():
+        raise ValueError(
+            "Existem divergências entre o código e o nome do subsistema na ENA!"
+        )
+
+    df["submercado"] = nomes_esperados
+
+    if (df[colunas_numericas] <= 0).any().any():
+        raise ValueError("Existem valores de ENA menores ou iguais a zero!")
+
+    # A ENA armazenável desconta as vazões vertidas e, portanto, não deve
+    # superar a ENA bruta. A tolerância evita falsos erros de ponto flutuante.
+    tolerancia = 0.000001
+
+    if (
+        df["ena_armazenavel_mwmed"]
+        > df["ena_bruta_mwmed"] + tolerancia
+    ).any():
+        raise ValueError("Existem valores de ENA armazenável maiores que a ENA bruta!")
+
+    if (
+        df["ena_armazenavel_percentual_mlt"]
+        > df["ena_bruta_percentual_mlt"] + tolerancia
+    ).any():
+        raise ValueError(
+            "Existem percentuais de ENA armazenável maiores que os da ENA bruta!"
+        )
+
+    chaves = ["data", "submercado"]
+
+    duplicadas = df.duplicated(
+        subset=chaves,
+        keep=False
+    )
+
+    print("Chaves duplicadas de ENA:", duplicadas.sum())
+
+    conflitos = (
+        df.groupby(chaves)[colunas_numericas]
+        .nunique()
+    )
+
+    print("Conflitos de ENA:", (conflitos > 1).any(axis=1).sum())
+
+    if (conflitos > 1).any().any():
+        raise ValueError("Existem valores conflitantes de ENA!")
+
+    df = df.drop_duplicates(subset=chaves)
+
+    if df.duplicated(subset=chaves).any():
+        raise ValueError("Ainda existem chaves duplicadas nos dados de ENA!")
+
+    colunas_finais = [
+        "data",
+        "submercado",
+        "ena_bruta_mwmed",
+        "ena_bruta_percentual_mlt",
+        "ena_armazenavel_mwmed",
+        "ena_armazenavel_percentual_mlt",
+    ]
     df = df[colunas_finais]
 
     return df
