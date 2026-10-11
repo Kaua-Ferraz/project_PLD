@@ -20,6 +20,10 @@ htmlcov/
 .ruff_cache/
 .tox/
 
+# ignorando testes avulços
+tests/test_2023.py
+tests/test_raw_ccee.py
+
 # Pacotes e builds Python
 build/
 dist/
