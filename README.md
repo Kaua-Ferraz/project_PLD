@@ -1,78 +1,131 @@
 # Previsão do PLD Médio Diário
 
-Projeto de Iniciação Científica voltado à previsão do Preço de Liquidação das Diferenças (PLD) médio diário utilizando técnicas de Machine Learning.
+Este projeto reúne dados públicos do setor elétrico brasileiro para, futuramente,
+desenvolver um modelo de previsão do **Preço de Liquidação das Diferenças (PLD)**
+médio diário.
 
-O projeto ainda está em desenvolvimento. A etapa atualmente implementada é a coleta confiável e incremental dos dados que serão usados nas etapas posteriores de análise, preparação e treinamento dos modelos.
+O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 
-## Fontes de dados
+1. coleta incremental dos arquivos CSV da CCEE e do ONS;
+2. validação e preservação dos dados brutos;
+3. limpeza e padronização de cada dataset;
+4. consolidação dos arquivos anuais em arquivos Parquet;
+5. testes de estrutura, qualidade e cobertura temporal.
 
-Os dados são obtidos principalmente de dois portais públicos que utilizam APIs CKAN:
+A integração definitiva dos datasets e o treinamento do modelo ainda não foram
+finalizados.
 
-- [CCEE — Dados Abertos](https://dadosabertos.ccee.org.br), incluindo o PLD médio diário;
-- [ONS — Dados Abertos](https://dados.ons.org.br), incluindo carga, energia armazenada, energia natural afluente e balanço de energia por subsistema.
+## Dados utilizados
 
-## Estado atual
+| Fonte | Dataset | Arquivo consolidado | Granularidade |
+| --- | --- | --- | --- |
+| CCEE | PLD médio diário | `data/interim/pld.parquet` | diária por submercado |
+| ONS | Carga de energia | `data/interim/carga_energia.parquet` | diária por submercado |
+| ONS | Energia Armazenada (EAR) | `data/interim/ear.parquet` | diária por submercado |
+| ONS | Energia Natural Afluente (ENA) | `data/interim/ena.parquet` | diária por submercado |
+| ONS | Balanço de energia por subsistema | `data/interim/balanco_energia.parquet` | diária por submercado, calculada a partir dos registros horários |
 
-Nesta fase, o projeto oferece:
+Os arquivos originais permanecem em `data/raw/`. Eles não são sobrescritos pelas
+etapas de limpeza. Os arquivos consolidados são gravados em `data/interim/`.
+Essas duas pastas de dados não são versionadas pelo Git.
 
-- coleta histórica a partir de 2021;
-- atualização diária dos recursos do ano atual;
-- detecção de alterações por metadados e SHA-256;
-- validação dos CSVs antes da substituição;
-- backups e recuperação em caso de falha;
-- registro local em `data/manifest.json`;
-- testes automatizados sem dependência obrigatória dos servidores externos.
-
-A preparação final dos dados e o treinamento dos modelos ainda não fazem parte desta versão.
-
-## Estrutura do projeto
+## Estrutura principal
 
 ```text
 project_PLD/
+├── data/
+│   ├── raw/                    # CSVs originais baixados dos portais
+│   └── interim/                # Parquets limpos e consolidados
 ├── docs/
-│   └── coleta_dados.md     # documentação completa do coletor
-├── notebooks/               # explorações e experimentos futuros
+│   ├── coleta_dados.md         # funcionamento do coletor CKAN
+│   └── limpeza_transformacao.md # limpeza e consolidação dos datasets
 ├── src/
 │   ├── data/
-│   │   ├── ckan.py
-│   │   ├── ccee.py
-│   │   ├── ons.py
-│   │   └── validate.py
-│   └── update.py
-├── tests/
-├── .gitignore
-├── README.md
+│   │   ├── ccee.py             # configuração da coleta da CCEE
+│   │   ├── ckan.py             # cliente compartilhado para portais CKAN
+│   │   ├── ons.py              # configuração da coleta do ONS
+│   │   └── validate.py         # validações aplicadas durante o download
+│   ├── clean.py                # limpeza individual de cada DataFrame
+│   ├── transform.py            # consolidação anual e exportação em Parquet
+│   ├── merge.py                # integração em desenvolvimento
+│   └── update.py               # ponto de entrada da coleta
+├── tests/                      # testes de consolidação e comparação
 └── requirements.txt
 ```
 
-Os datasets baixados ficam em `data/`, mas não são enviados ao Git porque podem ser reconstruídos executando a coleta.
-
 ## Instalação
 
-Na raiz do projeto, instale as dependências:
+Com o Python instalado, crie e ative um ambiente virtual:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+Instale as dependências:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Para realizar a primeira coleta histórica:
+## Fluxo de execução
+
+### 1. Coletar os CSVs
+
+Para baixar ou atualizar todo o histórico configurado:
 
 ```powershell
 python -m src.update historical
 ```
 
-Para verificar apenas as atualizações mais recentes:
+Para a atualização diária:
 
 ```powershell
 python -m src.update daily
 ```
 
-Para executar os testes:
+O coletor compara o conteúdo remoto com o arquivo local. Quando não existe
+alteração, o arquivo não é regravado. Quando existe alteração, a versão anterior
+é preservada no histórico antes da substituição.
+
+### 2. Limpar e consolidar os dados
+
+Depois da coleta, execute:
+
+```powershell
+python src\transform.py
+```
+
+Esse script lê os CSVs anuais de `data/raw/`, aplica as funções de `src/clean.py`,
+concatena os anos, verifica duplicatas e conflitos, ordena os registros e grava
+os cinco arquivos Parquet em `data/interim/`.
+
+### 3. Executar os testes
 
 ```powershell
 python -m pytest -q
 ```
 
-## Documentação da coleta
+Alguns testes também imprimem relatórios de diagnóstico. Para visualizá-los:
 
-A explicação completa do coletor — incluindo arquitetura, comandos, manifesto, detecção de alterações, validações, duplicatas e backups — está em [docs/coleta_dados.md](docs/coleta_dados.md).
+```powershell
+python -m pytest -q -s
+```
+
+Os testes não corrigem os dados. Eles tornam inconsistências visíveis para que a
+decisão de tratamento possa ser analisada e justificada.
+
+## Documentação
+
+- [Coleta incremental de dados CKAN](docs/coleta_dados.md): explica downloads,
+  seleção de recursos, manifestos, backups e validações dos arquivos brutos.
+- [Limpeza e transformação dos dados](docs/limpeza_transformacao.md): explica as
+  funções de limpeza, a consolidação anual, as variáveis escolhidas, as unidades
+  e os testes de qualidade.
+
+## Próximas etapas
+
+- finalizar a integração dos datasets por data e submercado;
+- definir defasagens que evitem vazamento temporal na previsão D+1;
+- construir as features do modelo;
+- treinar e avaliar os modelos de previsão do PLD.

@@ -516,3 +516,215 @@ def clean_ena(dataframe: pd.DataFrame) -> pd.DataFrame:
     df = df[colunas_finais]
 
     return df
+
+
+def clean_balanco(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Valida o balanço horário e calcula médias diárias por submercado.
+
+    As 24 horas precisam existir exatamente uma vez em cada dia. O sinal do
+    intercâmbio líquido é preservado durante o cálculo da média diária.
+    """
+    df = dataframe.copy()
+
+    colunas_esperadas = {
+        "id_subsistema",
+        "nom_subsistema",
+        "din_instante",
+        "val_gerhidraulica",
+        "val_gertermica",
+        "val_gereolica",
+        "val_gersolar",
+        "val_carga",
+        "val_intercambio",
+    }
+
+    colunas_ausentes = colunas_esperadas - set(df.columns)
+
+    if colunas_ausentes:
+        raise ValueError(
+            "Colunas de Balanco ausentes: " + ", ".join(sorted(colunas_ausentes))
+        )
+
+    if df.empty:
+        raise ValueError("O arquivo de Balanco está vazio!")
+
+    df = df.rename(columns={
+        "id_subsistema": "submercado",
+        "din_instante": "instante",
+        "val_gerhidraulica": "geracao_hidraulica_mwmed",
+        "val_gertermica": "geracao_termica_mwmed",
+        "val_gereolica": "geracao_eolica_mwmed",
+        "val_gersolar": "geracao_solar_mwmed",
+        "val_carga": "carga_balanco_mwmed",
+        "val_intercambio": "intercambio_mwmed",
+    })
+
+    # Em 2026, os códigos dos quatro submercados possuem espaços no final.
+    df["submercado"] = df["submercado"].astype("string").str.strip()
+    df["nom_subsistema"] = df["nom_subsistema"].astype("string").str.strip()
+
+    df["instante"] = pd.to_datetime(
+        df["instante"],
+        format="%Y-%m-%d %H:%M:%S",
+        errors="raise"
+    )
+
+    colunas_numericas = [
+        "geracao_hidraulica_mwmed",
+        "geracao_termica_mwmed",
+        "geracao_eolica_mwmed",
+        "geracao_solar_mwmed",
+        "carga_balanco_mwmed",
+        "intercambio_mwmed",
+    ]
+
+    for coluna in colunas_numericas:
+        df[coluna] = pd.to_numeric(
+            df[coluna],
+            errors="raise"
+        )
+
+    colunas_para_validar = [
+        "submercado",
+        "nom_subsistema",
+        "instante",
+        *colunas_numericas,
+    ]
+
+    # Embora o dicionário do ONS permita nulos em algumas gerações, a média
+    # do Pandas os ignoraria. Para não produzir médias com menos de 24 horas,
+    # interrompemos a limpeza se qualquer valor estiver ausente.
+    if df[colunas_para_validar].isna().any().any():
+        raise ValueError("Foram encontrados valores ausentes no balanço de energia!")
+
+    nomes_originais = {
+        "N": "NORTE",
+        "NE": "NORDESTE",
+        "S": "SUL",
+        "SE": "SUDESTE/CENTRO-OESTE",
+        "SIN": "SISTEMA INTERLIGADO NACIONAL",
+    }
+
+    nomes_esperados = df["submercado"].map(nomes_originais)
+
+    if nomes_esperados.isna().any():
+        raise ValueError("Existem subsistemas desconhecidos no balanço de energia!")
+
+    if (nomes_esperados != df["nom_subsistema"]).any():
+        raise ValueError(
+            "Existem divergências entre o código e o nome do subsistema no balanço!"
+        )
+
+    chaves_horarias = ["instante", "submercado"]
+
+    if df.duplicated(subset=chaves_horarias).any():
+        raise ValueError("Existem registros horários duplicados no balanço!")
+
+    colunas_geracao = [
+        "geracao_hidraulica_mwmed",
+        "geracao_termica_mwmed",
+        "geracao_eolica_mwmed",
+        "geracao_solar_mwmed",
+    ]
+
+    geracoes_negativas = (df[colunas_geracao] < 0).sum().sum()
+
+    if geracoes_negativas:
+        print(
+            "Aviso: foram encontrados",
+            geracoes_negativas,
+            "valor(es) de geração negativa; os valores foram preservados."
+        )
+
+    if (df["carga_balanco_mwmed"] < 0).any():
+        raise ValueError("Existem valores negativos de carga no balanço de energia!")
+
+    # O SIN é um total agregado. Para evitar misturá-lo aos quatro
+    # submercados, ele é validado acima e retirado antes da média diária.
+    df = df[df["submercado"] != "SIN"].copy()
+
+    regioes = {
+        "N": "NORTE",
+        "NE": "NORDESTE",
+        "S": "SUL",
+        "SE": "SUDESTE",
+    }
+
+    submercados_encontrados = set(df["submercado"].unique())
+
+    if submercados_encontrados != set(regioes):
+        raise ValueError("Não foram encontrados os quatro submercados no balanço!")
+
+    df["submercado"] = df["submercado"].map(regioes)
+    df["data"] = df["instante"].dt.normalize()
+
+    instantes_fora_da_hora = (
+        (df["instante"].dt.minute != 0)
+        | (df["instante"].dt.second != 0)
+        | (df["instante"].dt.microsecond != 0)
+    )
+
+    if instantes_fora_da_hora.any():
+        raise ValueError("Existem registros fora do início exato da hora!")
+
+    contagem = (
+        df.groupby(["data", "submercado"])
+        .size()
+    )
+
+    dias_incompletos = contagem[contagem != 24]
+
+    if not dias_incompletos.empty:
+        print(dias_incompletos)
+        raise ValueError("Existem dias com quantidade de horas diferente de 24!")
+
+    horas_esperadas = list(range(24))
+    horas_por_dia = (
+        df.groupby(["data", "submercado"])["instante"]
+        .apply(lambda instantes: sorted(instantes.dt.hour.tolist()))
+    )
+    sequencias_invalidas = horas_por_dia[
+        horas_por_dia.apply(lambda horas: horas != horas_esperadas)
+    ]
+
+    if not sequencias_invalidas.empty:
+        print(sequencias_invalidas)
+        raise ValueError("Existem dias sem a sequência horária completa de 00 a 23!")
+
+    datas_esperadas = pd.date_range(
+        start=df["data"].min(),
+        end=df["data"].max(),
+        freq="D"
+    )
+
+    dias_ausentes = {}
+
+    for submercado, grupo in df.groupby("submercado"):
+        datas_submercado = pd.DatetimeIndex(
+            grupo["data"].unique()
+        )
+        faltantes = datas_esperadas.difference(datas_submercado)
+
+        if not faltantes.empty:
+            dias_ausentes[submercado] = faltantes
+
+    if dias_ausentes:
+        for submercado, faltantes in dias_ausentes.items():
+            print(submercado, ":", faltantes.tolist())
+        raise ValueError("Existem dias inteiros ausentes no balanço de energia!")
+
+    df = (
+        df.groupby(["data", "submercado"], as_index=False)
+        [colunas_numericas]
+        .mean()
+        .sort_values(["data", "submercado"])
+        .reset_index(drop=True)
+    )
+
+    if df[colunas_numericas].isna().any().any():
+        raise ValueError("A média diária do balanço produziu valores ausentes!")
+
+    if df.duplicated(subset=["data", "submercado"]).any():
+        raise ValueError("Ainda existem chaves duplicadas no balanço diário!")
+
+    return df

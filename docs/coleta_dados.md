@@ -4,6 +4,25 @@ Este documento descreve o componente responsável por coletar recursos CSV dos p
 
 [Voltar ao README principal](../README.md)
 
+Esta etapa termina nos arquivos brutos de `data/raw/`. O coletor verifica se o
+arquivo recebido é utilizável, mas não o adapta para o modelo e não agrega dados.
+A padronização das colunas, a agregação diária e a geração dos arquivos Parquet
+são explicadas em [Limpeza e transformação dos dados](limpeza_transformacao.md).
+
+## Datasets coletados
+
+| Portal | Identificador do dataset | Conteúdo |
+| --- | --- | --- |
+| CCEE | `pld_media_diaria` | PLD médio diário por submercado |
+| ONS | `carga-energia` | carga de energia diária por subsistema |
+| ONS | `ear-diario-por-subsistema` | Energia Armazenada diária |
+| ONS | `ena-diario-por-subsistema` | Energia Natural Afluente diária |
+| ONS | `balanco-energia-subsistema` | balanço horário de energia por subsistema |
+
+Os nomes acima são os identificadores usados pelos respectivos portais CKAN. Os
+recursos anuais selecionados pelo coletor são preservados como CSV, sem correção
+silenciosa de valores.
+
 ## Como estudar a implementação
 
 O fluxo original do coletor foi mantido de propósito. A melhor ordem de leitura é:
@@ -150,6 +169,21 @@ Se a mesma chave `DIA + SUBMERCADO` possuir valores diferentes, a validação co
 - Na CCEE, `size` pode ser nulo e `hash` pode estar vazio. O hash local e, quando necessário, um novo download são usados como salvaguarda.
 - Um portal pode anunciar `ETag` e ainda ignorar a requisição condicional. Isso aumenta o tráfego, mas não cria backup se o SHA-256 for idêntico.
 - A seleção anual procura um ano de quatro dígitos no nome e na URL. Recursos sem ano são tratados como possivelmente acumulados e incluídos por segurança.
-- A validação geral do ONS é estrutural. Regras semânticas próprias de cada dataset podem ser adicionadas em validadores separados.
+- A validação geral do ONS durante o download é principalmente estrutural. As
+  regras semânticas de carga, EAR, ENA e balanço são aplicadas posteriormente por
+  `src/clean.py`, mantendo separadas a aceitação do arquivo bruto e sua preparação
+  para análise.
 - A validação com Pandas carrega o CSV em memória, embora o download seja feito em streaming.
 - Não existe remoção automática de backups nesta versão.
+
+## Próxima etapa do fluxo
+
+Depois que os CSVs estiverem em `data/raw/`, execute:
+
+```powershell
+python src\transform.py
+```
+
+Esse comando não modifica os arquivos brutos. Ele cria os arquivos consolidados
+em `data/interim/`. As transformações e verificações são detalhadas em
+[Limpeza e transformação dos dados](limpeza_transformacao.md).

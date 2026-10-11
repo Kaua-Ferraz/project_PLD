@@ -382,8 +382,118 @@ def read_ena() -> None:
     )
 
 
+def read_balanco() -> None:
+    """Lê, agrega e consolida os CSVs horários do balanço de energia.
+
+    Cada arquivo é validado antes do cálculo das médias diárias. O resultado
+    dos quatro submercados é gravado em ``data/interim/balanco_energia.parquet``.
+    """
+    raiz = Path(__file__).resolve().parent.parent
+    pasta = (
+        raiz
+        / "data"
+        / "raw"
+        / "ons"
+        / "balanco-energia-subsistema"
+        / "current"
+    )
+    arquivos = sorted(pasta.glob("*.csv"))
+
+    if not arquivos:
+        raise FileNotFoundError(f"Nenhum CSV encontrado em: {pasta}")
+
+    dataframes: list[pd.DataFrame] = []
+
+    for arquivo in arquivos:
+        try:
+            df = pd.read_csv(
+                arquivo,
+                sep=";"
+            )
+            df = cl.clean_balanco(df)
+        except Exception as error:
+            raise RuntimeError(
+                f"Erro ao processar o arquivo de balanço {arquivo.name}.\n"
+                f"Erro: {error}"
+            ) from error
+
+        dataframes.append(df)
+
+    try:
+        df_balanco = pd.concat(
+            dataframes,
+            ignore_index=True
+        )
+    except Exception as error:
+        raise RuntimeError(
+            f"Erro ao concatenar o balanço de energia.\nErro: {error}"
+        ) from error
+
+    chaves = ["data", "submercado"]
+    colunas_balanco = [
+        "geracao_hidraulica_mwmed",
+        "geracao_termica_mwmed",
+        "geracao_eolica_mwmed",
+        "geracao_solar_mwmed",
+        "carga_balanco_mwmed",
+        "intercambio_mwmed",
+    ]
+
+    duplicadas = df_balanco.duplicated(
+        subset=chaves,
+        keep=False
+    )
+
+    print("Chaves duplicadas do balanço entre arquivos:", duplicadas.sum())
+
+    conflitos = (
+        df_balanco.groupby(chaves)[colunas_balanco]
+        .nunique()
+    )
+
+    print(
+        "Conflitos do balanço entre arquivos:",
+        (conflitos > 1).any(axis=1).sum()
+    )
+
+    if (conflitos > 1).any().any():
+        raise ValueError("Existem valores conflitantes do balanço entre arquivos!")
+
+    df_balanco = df_balanco.drop_duplicates(subset=chaves)
+
+    if df_balanco.duplicated(subset=chaves).any():
+        raise ValueError("Ainda existem chaves duplicadas no balanço consolidado!")
+
+    df_balanco = df_balanco[
+        [
+            "data",
+            "submercado",
+            *colunas_balanco,
+        ]
+    ]
+
+    df_balanco = (
+        df_balanco
+        .sort_values(["data", "submercado"])
+        .reset_index(drop=True)
+    )
+
+    destino = raiz / "data" / "interim" / "balanco_energia.parquet"
+
+    destino.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    df_balanco.to_parquet(
+        destino,
+        index=False
+    )
+
+
 if __name__ == "__main__":
     read_pld()
     read_carga()
     read_ear()
     read_ena()
+    read_balanco()
