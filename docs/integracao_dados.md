@@ -9,7 +9,8 @@ organiza o histórico, mas a disponibilidade temporal de cada variável precisa 
 estudada antes do treinamento.
 
 [Voltar ao README principal](../README.md) ·
-[Ver a limpeza e transformação](limpeza_transformacao.md)
+[Ver a limpeza e transformação](limpeza_transformacao.md) ·
+[Ver a pré-modelagem](pre_modelagem.md)
 
 ## Arquivos de entrada e saída
 

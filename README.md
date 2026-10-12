@@ -12,11 +12,14 @@ O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 4. consolidação dos arquivos anuais em arquivos Parquet;
 5. integração dos cinco datasets usando o PLD como histórico principal;
 6. criação explícita da variável-alvo PLD D+1;
-7. testes de estrutura, qualidade e cobertura temporal.
+7. diagnóstico de disponibilidade temporal e risco de vazamento;
+8. criação de features com lags de calendário, divisão cronológica e baseline;
+9. testes de estrutura, qualidade e cobertura temporal.
 
-O dataset com o alvo D+1 ainda não é considerado pronto para treinamento. Antes
-disso, será necessário definir o momento da previsão e confirmar quais variáveis
-estariam realmente disponíveis naquele instante.
+O cenário preparado prevê D+1 às 00h de D. As variáveis verificadas do ONS usam
+D-2 de forma conservadora e provisória. Antes de uma avaliação operacional,
+ainda será necessário confirmar a disponibilidade ponto a ponto com snapshots
+de publicação da CCEE e do ONS.
 
 ## Dados utilizados
 
@@ -44,7 +47,8 @@ project_PLD/
 ├── docs/
 │   ├── coleta_dados.md         # funcionamento do coletor CKAN
 │   ├── limpeza_transformacao.md # limpeza e consolidação dos datasets
-│   └── integracao_dados.md      # merge e preparação inicial do alvo D+1
+│   ├── integracao_dados.md      # merge e preparação inicial do alvo D+1
+│   └── pre_modelagem.md         # disponibilidade, features e divisão temporal
 ├── src/
 │   ├── data/
 │   │   ├── ccee.py             # configuração da coleta da CCEE
@@ -52,6 +56,7 @@ project_PLD/
 │   │   ├── ons.py              # configuração da coleta do ONS
 │   │   └── validate.py         # validações aplicadas durante o download
 │   ├── clean.py                # limpeza individual de cada DataFrame
+│   ├── features.py             # lags, calendário, baseline e divisão temporal
 │   ├── merge.py                # integração e preparação do alvo D+1
 │   ├── pipeline.py             # operações compartilhadas do pipeline
 │   ├── transform.py            # configuração da consolidação de cada dataset
@@ -120,7 +125,16 @@ Esse comando cria dois arquivos:
 - `data/processed/pld_treino.parquet`: mesmo histórico com `data_alvo` e
   `pld_d1`. Apesar do nome, ele ainda não está pronto para treinar modelos.
 
-### 4. Executar os testes
+### 4. Preparar as features
+
+```powershell
+python -m src.features
+```
+
+Esse comando cria `data/processed/pld_features.parquet`, sem alterar os Parquets
+intermediários, preencher valores ausentes ou remover linhas.
+
+### 5. Executar os testes
 
 ```powershell
 python -m pytest -q
@@ -144,11 +158,13 @@ decisão de tratamento possa ser analisada e justificada.
   e os testes de qualidade.
 - [Integração dos dados e alvo D+1](docs/integracao_dados.md): explica o merge,
   as ausências encontradas, a criação do alvo e o risco de vazamento temporal.
+- [Pré-modelagem e disponibilidade temporal](docs/pre_modelagem.md): documenta
+  o cenário das 00h, as incertezas de publicação, os lags, os `NaN`, a divisão
+  cronológica e o baseline.
 
 ## Próximas etapas
 
-- definir o instante operacional da previsão D+1;
-- investigar a disponibilidade temporal de cada fonte;
-- definir defasagens que evitem vazamento temporal;
-- construir as features do modelo;
+- confirmar a disponibilidade histórica com snapshots de publicação;
+- decidir o tratamento das linhas incompletas sem ocultar suas causas;
+- congelar o período de teste e definir métricas de avaliação;
 - treinar e avaliar os modelos de previsão do PLD.
