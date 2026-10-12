@@ -338,11 +338,13 @@ não faz sentido usá-las simultaneamente como features do modelo, pois carregar
 a mesma informação. Essa decisão deve ser tomada apenas depois de analisar o
 relatório e a disponibilidade temporal de cada fonte.
 
-## O que ainda não está coberto aqui
+## Próxima etapa do fluxo
 
-O merge definitivo, a criação de features e o treinamento do modelo ainda não
-estão documentados como etapas prontas. Antes de integrar os dados para uma
-previsão D+1, será necessário confirmar quando cada variável se torna disponível
-e aplicar defasagens adequadas. Usar no modelo uma informação que só é publicada
-depois do dia previsto causaria vazamento temporal.
+A integração dos cinco datasets e a criação explícita do alvo PLD D+1 são
+explicadas em [Integração dos dados e preparação do PLD D+1](integracao_dados.md).
+
+A criação de features e o treinamento do modelo ainda não foram implementados.
+Antes dessas etapas, será necessário confirmar quando cada variável se torna
+disponível e aplicar defasagens adequadas. Usar no modelo uma informação que só é
+publicada depois do instante da previsão causaria vazamento temporal.
 

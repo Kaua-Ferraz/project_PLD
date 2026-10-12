@@ -10,10 +10,13 @@ O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 2. validação e preservação dos dados brutos;
 3. limpeza e padronização de cada dataset;
 4. consolidação dos arquivos anuais em arquivos Parquet;
-5. testes de estrutura, qualidade e cobertura temporal.
+5. integração dos cinco datasets usando o PLD como histórico principal;
+6. criação explícita da variável-alvo PLD D+1;
+7. testes de estrutura, qualidade e cobertura temporal.
 
-A integração definitiva dos datasets e o treinamento do modelo ainda não foram
-finalizados.
+O dataset com o alvo D+1 ainda não é considerado pronto para treinamento. Antes
+disso, será necessário definir o momento da previsão e confirmar quais variáveis
+estariam realmente disponíveis naquele instante.
 
 ## Dados utilizados
 
@@ -27,7 +30,8 @@ finalizados.
 
 Os arquivos originais permanecem em `data/raw/`. Eles não são sobrescritos pelas
 etapas de limpeza. Os arquivos consolidados são gravados em `data/interim/`.
-Essas duas pastas de dados não são versionadas pelo Git.
+Os resultados da integração ficam em `data/processed/`. Essas três pastas de
+dados não são versionadas pelo Git.
 
 ## Estrutura principal
 
@@ -35,10 +39,12 @@ Essas duas pastas de dados não são versionadas pelo Git.
 project_PLD/
 ├── data/
 │   ├── raw/                    # CSVs originais baixados dos portais
-│   └── interim/                # Parquets limpos e consolidados
+│   ├── interim/                # Parquets limpos e consolidados
+│   └── processed/              # histórico integrado e alvo D+1
 ├── docs/
 │   ├── coleta_dados.md         # funcionamento do coletor CKAN
-│   └── limpeza_transformacao.md # limpeza e consolidação dos datasets
+│   ├── limpeza_transformacao.md # limpeza e consolidação dos datasets
+│   └── integracao_dados.md      # merge e preparação inicial do alvo D+1
 ├── src/
 │   ├── data/
 │   │   ├── ccee.py             # configuração da coleta da CCEE
@@ -47,7 +53,7 @@ project_PLD/
 │   │   └── validate.py         # validações aplicadas durante o download
 │   ├── clean.py                # limpeza individual de cada DataFrame
 │   ├── transform.py            # consolidação anual e exportação em Parquet
-│   ├── merge.py                # integração em desenvolvimento
+│   ├── merge.py                # integração e preparação do alvo D+1
 │   └── update.py               # ponto de entrada da coleta
 ├── tests/                      # testes de consolidação e comparação
 └── requirements.txt
@@ -100,7 +106,20 @@ Esse script lê os CSVs anuais de `data/raw/`, aplica as funções de `src/clean
 concatena os anos, verifica duplicatas e conflitos, ordena os registros e grava
 os cinco arquivos Parquet em `data/interim/`.
 
-### 3. Executar os testes
+### 3. Integrar os datasets e preparar o alvo D+1
+
+```powershell
+python src\merge.py
+```
+
+Esse comando cria dois arquivos:
+
+- `data/processed/pld_integrado.parquet`: histórico integrado dos cinco
+  datasets, mantendo todas as linhas do PLD;
+- `data/processed/pld_treino.parquet`: mesmo histórico com `data_alvo` e
+  `pld_d1`. Apesar do nome, ele ainda não está pronto para treinar modelos.
+
+### 4. Executar os testes
 
 ```powershell
 python -m pytest -q
@@ -122,10 +141,13 @@ decisão de tratamento possa ser analisada e justificada.
 - [Limpeza e transformação dos dados](docs/limpeza_transformacao.md): explica as
   funções de limpeza, a consolidação anual, as variáveis escolhidas, as unidades
   e os testes de qualidade.
+- [Integração dos dados e alvo D+1](docs/integracao_dados.md): explica o merge,
+  as ausências encontradas, a criação do alvo e o risco de vazamento temporal.
 
 ## Próximas etapas
 
-- finalizar a integração dos datasets por data e submercado;
-- definir defasagens que evitem vazamento temporal na previsão D+1;
+- definir o instante operacional da previsão D+1;
+- investigar a disponibilidade temporal de cada fonte;
+- definir defasagens que evitem vazamento temporal;
 - construir as features do modelo;
 - treinar e avaliar os modelos de previsão do PLD.
