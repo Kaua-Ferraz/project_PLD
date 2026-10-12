@@ -52,8 +52,9 @@ project_PLD/
 │   │   ├── ons.py              # configuração da coleta do ONS
 │   │   └── validate.py         # validações aplicadas durante o download
 │   ├── clean.py                # limpeza individual de cada DataFrame
-│   ├── transform.py            # consolidação anual e exportação em Parquet
 │   ├── merge.py                # integração e preparação do alvo D+1
+│   ├── pipeline.py             # operações compartilhadas do pipeline
+│   ├── transform.py            # configuração da consolidação de cada dataset
 │   └── update.py               # ponto de entrada da coleta
 ├── tests/                      # testes de consolidação e comparação
 └── requirements.txt

@@ -2,6 +2,21 @@
 
 import pandas as pd
 
+try:
+    from .pipeline import (
+        remove_identical_duplicates,
+        validate_input_dataframe,
+        validate_no_missing_values,
+        validate_unique_keys,
+    )
+except ImportError:
+    from pipeline import (
+        remove_identical_duplicates,
+        validate_input_dataframe,
+        validate_no_missing_values,
+        validate_unique_keys,
+    )
+
 
 def clean_pld(dataframe: pd.DataFrame) -> pd.DataFrame:
     """Padroniza e valida um arquivo de PLD médio diário.
@@ -16,16 +31,7 @@ def clean_pld(dataframe: pd.DataFrame) -> pd.DataFrame:
         "SUBMERCADO",
         "PLD_MEDIA_DIA",
     }
-
-    colunas_ausentes = colunas_esperadas - set(df.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas de PLD ausentes: " + ", ".join(sorted(colunas_ausentes))
-        )
-
-    if df.empty:
-        raise ValueError("O arquivo de PLD está vazio!")
+    validate_input_dataframe(df, colunas_esperadas, "PLD")
 
     df = df.rename(columns={
         "DIA": "data",
@@ -57,8 +63,7 @@ def clean_pld(dataframe: pd.DataFrame) -> pd.DataFrame:
         "pld_medio_dia",
     ]
 
-    if df[colunas_finais].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes nos dados de PLD!")
+    validate_no_missing_values(df, colunas_finais, "PLD")
 
     submercados_esperados = {
         "NORTE",
@@ -80,27 +85,12 @@ def clean_pld(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     chaves = ["data", "submercado"]
 
-    duplicadas = df.duplicated(
-        subset=chaves,
-        keep=False
+    df = remove_identical_duplicates(
+        dataframe=df,
+        keys=chaves,
+        value_columns=["pld_medio_dia"],
+        dataset_name="PLD",
     )
-
-    print("Chaves duplicadas de PLD:", duplicadas.sum())
-
-    conflitos = (
-        df.groupby(chaves)["pld_medio_dia"]
-        .nunique()
-    )
-
-    print("Conflitos de PLD:", (conflitos > 1).sum())
-
-    if (conflitos > 1).any():
-        raise ValueError("Foram encontrados PLDs conflitantes!")
-
-    df = df.drop_duplicates(subset=chaves)
-
-    if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas nos dados de PLD!")
 
     df = df[colunas_finais]
 
@@ -121,16 +111,7 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
         "din_instante",
         "val_cargaenergiamwmed",
     }
-
-    colunas_ausentes = colunas_esperadas - set(df.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas de carga ausentes: " + ", ".join(sorted(colunas_ausentes))
-        )
-
-    if df.empty:
-        raise ValueError("O arquivo de carga está vazio!")
+    validate_input_dataframe(df, colunas_esperadas, "carga")
 
     df = df.rename(columns={
         "id_subsistema": "submercado",
@@ -159,8 +140,7 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
         "carga_mwmed",
     ]
 
-    if df[colunas_para_validar].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes nos dados de carga!")
+    validate_no_missing_values(df, colunas_para_validar, "carga")
 
     nomes_originais = {
         "N": "Norte",
@@ -193,27 +173,12 @@ def clean_carga(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     chaves = ["data", "submercado"]
 
-    duplicadas = df.duplicated(
-        subset=chaves,
-        keep=False
+    df = remove_identical_duplicates(
+        dataframe=df,
+        keys=chaves,
+        value_columns=["carga_mwmed"],
+        dataset_name="carga",
     )
-
-    print("Chaves duplicadas de carga:", duplicadas.sum())
-
-    conflitos = (
-        df.groupby(chaves)["carga_mwmed"]
-        .nunique()
-    )
-
-    print("Conflitos de carga:", (conflitos > 1).sum())
-
-    if (conflitos > 1).any():
-        raise ValueError("Existem valores conflitantes de carga!")
-
-    df = df.drop_duplicates(subset=chaves)
-
-    if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas nos dados de carga!")
 
     df = df[["data", "submercado", "carga_mwmed"]]
 
@@ -236,16 +201,7 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
         "ear_verif_subsistema_mwmes",
         "ear_verif_subsistema_percentual",
     }
-
-    colunas_ausentes = colunas_esperadas - set(df.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas de EAR ausentes: " + ", ".join(sorted(colunas_ausentes))
-        )
-
-    if df.empty:
-        raise ValueError("O arquivo de EAR está vazio!")
+    validate_input_dataframe(df, colunas_esperadas, "EAR")
 
     df = df.rename(columns={
         "id_subsistema": "submercado",
@@ -285,8 +241,7 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
         *colunas_numericas,
     ]
 
-    if df[colunas_para_validar].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes nos dados de EAR!")
+    validate_no_missing_values(df, colunas_para_validar, "EAR")
 
     regioes = {
         "N": "NORTE",
@@ -337,27 +292,12 @@ def clean_ear(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     chaves = ["data", "submercado"]
 
-    duplicadas = df.duplicated(
-        subset=chaves,
-        keep=False
+    df = remove_identical_duplicates(
+        dataframe=df,
+        keys=chaves,
+        value_columns=colunas_numericas,
+        dataset_name="EAR",
     )
-
-    print("Chaves duplicadas de EAR:", duplicadas.sum())
-
-    conflitos = (
-        df.groupby(chaves)[colunas_numericas]
-        .nunique()
-    )
-
-    print("Conflitos de EAR:", (conflitos > 1).any(axis=1).sum())
-
-    if (conflitos > 1).any().any():
-        raise ValueError("Existem valores conflitantes de EAR!")
-
-    df = df.drop_duplicates(subset=chaves)
-
-    if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas nos dados de EAR!")
 
     colunas_finais = [
         "data",
@@ -388,16 +328,7 @@ def clean_ena(dataframe: pd.DataFrame) -> pd.DataFrame:
         "ena_armazenavel_regiao_mwmed",
         "ena_armazenavel_regiao_percentualmlt",
     }
-
-    colunas_ausentes = colunas_esperadas - set(df.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas de ENA ausentes: " + ", ".join(sorted(colunas_ausentes))
-        )
-
-    if df.empty:
-        raise ValueError("O arquivo de ENA está vazio!")
+    validate_input_dataframe(df, colunas_esperadas, "ENA")
 
     df = df.rename(columns={
         "id_subsistema": "submercado",
@@ -438,8 +369,7 @@ def clean_ena(dataframe: pd.DataFrame) -> pd.DataFrame:
         *colunas_numericas,
     ]
 
-    if df[colunas_para_validar].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes nos dados de ENA!")
+    validate_no_missing_values(df, colunas_para_validar, "ENA")
 
     regioes = {
         "N": "NORTE",
@@ -483,27 +413,12 @@ def clean_ena(dataframe: pd.DataFrame) -> pd.DataFrame:
 
     chaves = ["data", "submercado"]
 
-    duplicadas = df.duplicated(
-        subset=chaves,
-        keep=False
+    df = remove_identical_duplicates(
+        dataframe=df,
+        keys=chaves,
+        value_columns=colunas_numericas,
+        dataset_name="ENA",
     )
-
-    print("Chaves duplicadas de ENA:", duplicadas.sum())
-
-    conflitos = (
-        df.groupby(chaves)[colunas_numericas]
-        .nunique()
-    )
-
-    print("Conflitos de ENA:", (conflitos > 1).any(axis=1).sum())
-
-    if (conflitos > 1).any().any():
-        raise ValueError("Existem valores conflitantes de ENA!")
-
-    df = df.drop_duplicates(subset=chaves)
-
-    if df.duplicated(subset=chaves).any():
-        raise ValueError("Ainda existem chaves duplicadas nos dados de ENA!")
 
     colunas_finais = [
         "data",
@@ -537,16 +452,7 @@ def clean_balanco(dataframe: pd.DataFrame) -> pd.DataFrame:
         "val_carga",
         "val_intercambio",
     }
-
-    colunas_ausentes = colunas_esperadas - set(df.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas de Balanco ausentes: " + ", ".join(sorted(colunas_ausentes))
-        )
-
-    if df.empty:
-        raise ValueError("O arquivo de Balanco está vazio!")
+    validate_input_dataframe(df, colunas_esperadas, "balanço de energia")
 
     df = df.rename(columns={
         "id_subsistema": "submercado",
@@ -594,8 +500,11 @@ def clean_balanco(dataframe: pd.DataFrame) -> pd.DataFrame:
     # Embora o dicionário do ONS permita nulos em algumas gerações, a média
     # do Pandas os ignoraria. Para não produzir médias com menos de 24 horas,
     # interrompemos a limpeza se qualquer valor estiver ausente.
-    if df[colunas_para_validar].isna().any().any():
-        raise ValueError("Foram encontrados valores ausentes no balanço de energia!")
+    validate_no_missing_values(
+        df,
+        colunas_para_validar,
+        "balanço de energia",
+    )
 
     nomes_originais = {
         "N": "NORTE",
@@ -721,10 +630,15 @@ def clean_balanco(dataframe: pd.DataFrame) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-    if df[colunas_numericas].isna().any().any():
-        raise ValueError("A média diária do balanço produziu valores ausentes!")
-
-    if df.duplicated(subset=["data", "submercado"]).any():
-        raise ValueError("Ainda existem chaves duplicadas no balanço diário!")
+    validate_no_missing_values(
+        df,
+        colunas_numericas,
+        "média diária do balanço",
+    )
+    validate_unique_keys(
+        df,
+        ["data", "submercado"],
+        "balanço diário",
+    )
 
     return df

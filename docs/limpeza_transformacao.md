@@ -28,9 +28,11 @@ Essa separação deixa cada função com uma responsabilidade simples:
 
 - `clean.py` recebe um `DataFrame`, valida seus valores e devolve outro
   `DataFrame` com nomes e tipos padronizados;
-- `transform.py` encontra os CSVs anuais, chama a limpeza de cada arquivo,
-  concatena os resultados, verifica sobreposições entre arquivos e exporta o
-  conjunto completo.
+- `pipeline.py` contém as operações genéricas repetidas pelo fluxo;
+- `transform.py` informa a pasta, a função de limpeza, as chaves, as colunas e o
+  destino de cada dataset;
+- `process_csv_dataset()` encontra os CSVs anuais, chama a limpeza de cada
+  arquivo, concatena os resultados, verifica sobreposições e exporta o conjunto.
 
 Os CSVs de `data/raw/` nunca são alterados por essas funções. Quando um valor é
 suspeito, o código gera um erro ou um aviso; ele não preenche, converte para zero,
@@ -83,6 +85,29 @@ seguem uma sequência parecida:
 O argumento `errors="raise"` é intencional: uma data ou um número inválido
 interrompe a execução e fica visível, em vez de virar `NaT` ou `NaN` sem que se
 perceba.
+
+## Funções compartilhadas do pipeline
+
+As repetições estruturais foram separadas em `src/pipeline.py`. Elas não possuem
+regras específicas de PLD, carga, EAR, ENA ou balanço.
+
+| Função | Responsabilidade |
+| --- | --- |
+| `validate_input_dataframe()` | verifica arquivo vazio e colunas obrigatórias |
+| `validate_no_missing_values()` | verifica nulos nas colunas informadas |
+| `validate_unique_keys()` | garante uma linha por combinação de chaves |
+| `remove_identical_duplicates()` | remove cópias iguais e rejeita conflitos |
+| `sort_dataframe()` | ordena pelas chaves e recria o índice |
+| `save_parquet()` | cria a pasta e salva sem incluir o índice |
+| `process_csv_dataset()` | executa leitura, limpeza, concatenação e exportação |
+
+Por exemplo, `clean_ear()` continua responsável por saber que a EAR verificada
+não pode superar a EAR máxima. A função genérica sabe apenas verificar estrutura,
+nulos e duplicatas conforme as colunas recebidas.
+
+Essa divisão também prepara o projeto para um futuro PLD horário. O fluxo de
+leitura e consolidação poderá ser reutilizado com outras chaves, como instante e
+submercado. A regra horária ainda não foi implementada nesta etapa.
 
 ## PLD médio diário
 
@@ -234,7 +259,23 @@ O arquivo final é `data/interim/balanco_energia.parquet`.
 
 ## Como a consolidação entre anos funciona
 
-Cada `read_*()` guarda os DataFrames anuais em uma lista e os reúne assim:
+Cada `read_*()` chama `process_csv_dataset()` informando somente o que muda. Por
+exemplo, a configuração da carga informa:
+
+```python
+return process_csv_dataset(
+    source_directory=pasta_da_carga,
+    destination=INTERIM_DIRECTORY / "carga_energia.parquet",
+    dataset_name="carga",
+    clean_function=clean_carga,
+    keys=["data", "submercado"],
+    value_columns=["carga_mwmed"],
+    final_columns=["data", "submercado", "carga_mwmed"],
+)
+```
+
+Internamente, a função compartilhada guarda os DataFrames anuais em uma lista e
+os reúne assim:
 
 ```python
 df_consolidado = pd.concat(dataframes, ignore_index=True)

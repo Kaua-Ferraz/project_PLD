@@ -4,6 +4,23 @@ from pathlib import Path
 
 import pandas as pd
 
+try:
+    from .pipeline import (
+        save_parquet,
+        sort_dataframe,
+        validate_input_dataframe,
+        validate_no_missing_values,
+        validate_unique_keys,
+    )
+except ImportError:
+    from pipeline import (
+        save_parquet,
+        sort_dataframe,
+        validate_input_dataframe,
+        validate_no_missing_values,
+        validate_unique_keys,
+    )
+
 
 def merge_datasets() -> pd.DataFrame:
     """Integra os cinco datasets usando o PLD como tabela principal.
@@ -36,28 +53,16 @@ def merge_datasets() -> pd.DataFrame:
         print("Dimensões:", dataframe.shape)
         print("Colunas:", dataframe.columns.tolist())
 
-        if dataframe.empty:
-            raise ValueError(f"{nome}: o dataset está vazio!")
-
         if dataframe.columns.duplicated().any():
             raise ValueError(f"{nome}: existem nomes de colunas duplicados!")
 
-        colunas_ausentes = set(chaves) - set(dataframe.columns)
-
-        if colunas_ausentes:
-            raise ValueError(
-                f"{nome}: colunas de chave ausentes: "
-                + ", ".join(sorted(colunas_ausentes))
-            )
+        validate_input_dataframe(dataframe, set(chaves), nome)
 
         print("Período:", dataframe["data"].min(), "até", dataframe["data"].max())
         print("Tipos das chaves:", dataframe[chaves].dtypes.to_dict())
 
-        if dataframe[chaves].isna().any().any():
-            raise ValueError(f"{nome}: existem valores ausentes nas chaves!")
-
-        if dataframe.duplicated(subset=chaves).any():
-            raise ValueError(f"{nome}: existem chaves duplicadas!")
+        validate_no_missing_values(dataframe, chaves, f"chaves de {nome}")
+        validate_unique_keys(dataframe, chaves, nome)
 
         if not pd.api.types.is_datetime64_any_dtype(dataframe["data"]):
             raise TypeError(f"{nome}: a coluna data não possui tipo de data!")
@@ -159,8 +164,7 @@ def merge_datasets() -> pd.DataFrame:
             + ", ".join(colunas_com_sufixo)
         )
 
-    if df_final.duplicated(subset=chaves).any():
-        raise ValueError("O resultado integrado possui chaves duplicadas!")
+    validate_unique_keys(df_final, chaves, "resultado integrado")
 
     print("\n--- Valores ausentes após integração ---")
     print(df_final.isna().sum())
@@ -178,15 +182,10 @@ def merge_datasets() -> pd.DataFrame:
     if not linhas_incompletas.empty:
         print(linhas_incompletas.head(20).to_string(index=False))
 
-    df_final = (
-        df_final
-        .sort_values(chaves)
-        .reset_index(drop=True)
-    )
+    df_final = sort_dataframe(df_final, chaves)
 
     destino = raiz / "data" / "processed" / "pld_integrado.parquet"
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    df_final.to_parquet(destino, index=False)
+    save_parquet(df_final, destino)
 
     print("\nDataset integrado salvo em:", destino)
 
@@ -215,13 +214,7 @@ def prepare_pld_d1(dataframe: pd.DataFrame | None = None) -> pd.DataFrame:
     df_treino = dataframe.copy()
     chaves = ["data", "submercado"]
     colunas_necessarias = {*chaves, "pld_medio_dia"}
-    colunas_ausentes = colunas_necessarias - set(df_treino.columns)
-
-    if colunas_ausentes:
-        raise ValueError(
-            "Colunas necessárias para criar o PLD D+1 ausentes: "
-            + ", ".join(sorted(colunas_ausentes))
-        )
+    validate_input_dataframe(df_treino, colunas_necessarias, "PLD D+1")
 
     colunas_ja_existentes = {"data_alvo", "pld_d1"}.intersection(
         df_treino.columns
@@ -233,8 +226,11 @@ def prepare_pld_d1(dataframe: pd.DataFrame | None = None) -> pd.DataFrame:
             + ", ".join(sorted(colunas_ja_existentes))
         )
 
-    if df_treino[chaves].isna().any().any():
-        raise ValueError("Existem valores ausentes nas chaves do dataset integrado!")
+    validate_no_missing_values(
+        df_treino,
+        chaves,
+        "chaves do dataset integrado",
+    )
 
     if not pd.api.types.is_datetime64_any_dtype(df_treino["data"]):
         raise TypeError("A coluna data não possui tipo de data!")
@@ -242,8 +238,7 @@ def prepare_pld_d1(dataframe: pd.DataFrame | None = None) -> pd.DataFrame:
     if not pd.api.types.is_numeric_dtype(df_treino["pld_medio_dia"]):
         raise TypeError("A coluna pld_medio_dia não possui tipo numérico!")
 
-    if df_treino.duplicated(subset=chaves).any():
-        raise ValueError("Existem chaves duplicadas antes da criação do PLD D+1!")
+    validate_unique_keys(df_treino, chaves, "preparação do PLD D+1")
 
     df_treino["data_alvo"] = df_treino["data"] + pd.Timedelta(days=1)
 
@@ -276,8 +271,7 @@ def prepare_pld_d1(dataframe: pd.DataFrame | None = None) -> pd.DataFrame:
         )
 
     destino = raiz / "data" / "processed" / "pld_treino.parquet"
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    df_treino.to_parquet(destino, index=False)
+    save_parquet(df_treino, destino)
 
     print("\nDataset com alvo D+1 salvo em:", destino)
     print(
