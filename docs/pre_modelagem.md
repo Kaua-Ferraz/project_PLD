@@ -1,6 +1,43 @@
 # Pré-modelagem e disponibilidade temporal
 
-Este documento explica a etapa implementada em `src/features.py`. Ela valida o
+## Features horárias da Etapa 2
+
+O fluxo diário detalhado abaixo foi preservado. Quando existem alvos horários,
+`pld features` executa também `create_hourly_features()` e cria
+`data/processed/pld_horario_features.parquet`. Cada linha mantém
+`issue_time`, `target_time`, `horizon`, `submercado` e `target_pld`.
+
+- `price.py` consulta o último preço de referência até a emissão, os lags
+  exatos de 24h, 48h e 168h em relação ao alvo e as médias/desvios das
+  janelas anteriores à emissão. Um lag futuro fica nulo, não é antecipado.
+- `calendar.py` acrescenta hora-alvo, seno/cosseno da hora, dia da semana,
+  fim de semana, mês e a convenção sazonal maio–outubro = seco, novembro–abril
+  = úmido. Essa convenção não substitui medições hidrológicas.
+- `load_gen.py` e `hydrology.py` consultam carga, balanço, EAR e ENA nos
+  Parquets consolidados pela data de referência D-2 do dia de emissão. O
+  balanço horário usa a hora do alvo, mas do dia histórico permitido;
+  intercâmbio conserva o sinal. EAR absoluta (MWmês) e percentual e ENA
+  absoluta (MWmed) e percentual da MLT permanecem distintas.
+
+As colunas terminadas em `_reference_time` tornam auditável de qual instante
+veio cada medida. A classificação de nulos vai para
+`pld_horario_features_diagnostico.parquet`: início da série, hora histórica
+sem PLD, ausência original, lacuna da fonte, fim ainda não publicado,
+indisponibilidade na emissão e janela com apenas uma amostra para o desvio.
+Nenhum `fillna(0)` ou `dropna()` é aplicado às features. A divisão cronológica
+segue `target_time`: treino até 2024, validação em 2025, teste desde 2026.
+Esses rótulos não impedem que um futuro walk-forward defina cortes próprios.
+
+Há uma limitação científica importante: o histórico consolidado atual não
+contém versões *as of* de cada publicação. O atraso D-2 reduz o risco de usar
+um dia ainda não encerrado, mas não elimina viés de revisão. Nos testes, uma
+fonte com `collection_time` pode usar esse horário para selecionar somente
+registros já coletados; para repetir isso na pesquisa real é necessário
+materializar os snapshots por emissão.
+
+Este documento explica a etapa diária implementada em
+`src/pld_forecast/features/engine.py` (`src/features.py` continua como caminho
+de compatibilidade). Ela valida o
 resultado da integração, define um cenário de previsão, cria features temporais
 simples, diagnostica valores ausentes e prepara uma divisão cronológica.
 

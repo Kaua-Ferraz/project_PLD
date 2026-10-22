@@ -1,9 +1,15 @@
 # Limpeza e transformação dos dados
 
 Este documento explica como os CSVs brutos são validados, padronizados e
-consolidados em arquivos Parquet. Ele cobre `src/clean.py` e `src/transform.py`.
+consolidados em arquivos Parquet. A implementação fica em
+`src/pld_forecast/data/clean.py` e `src/pld_forecast/data/transform.py`;
+`src/clean.py` e `src/transform.py` continuam como caminhos de compatibilidade.
 A integração final entre os datasets não faz parte desta etapa, pois ainda está
 em desenvolvimento.
+
+O novo fluxo também preserva o balanço horário em
+`data/interim/balanco_energia_horario.parquet` e consolida o PLD horário em
+`data/interim/pld_horario.parquet` quando houver CSVs dessa fonte.
 
 [Voltar ao README principal](../README.md) ·
 [Ver a documentação da coleta](coleta_dados.md)
@@ -317,6 +323,15 @@ o índice depois da ordenação e descarta o índice antigo.
 | `read_ear()` | `ons/ear-diario-por-subsistema/current/` | `ear.parquet` |
 | `read_ena()` | `ons/ena-diario-por-subsistema/current/` | `ena.parquet` |
 | `read_balanco()` | `ons/balanco-energia-subsistema/current/` | `balanco_energia.parquet` |
+| `read_balanco()` | mesma origem | `balanco_energia_diario.parquet` (e nome antigo compatível) |
+| `read_balanco_horario()` | mesma origem | `balanco_energia_horario.parquet` |
+| `read_pld_horario()` | `ccee/pld_horario/current/` | `pld_horario.parquet` |
+
+O PLD horário fica em `instante`, `data`, `hora`, `submercado` e
+`pld_horario` (R$/MWh). A chave é `instante + submercado`; a hora vai de 0 a 23.
+O balanço horário mantém as seis medidas em MWmed, inclusive o sinal original
+do intercâmbio. A média diária é guardada separadamente e não substitui as
+observações horárias.
 
 O formato Parquet preserva tipos de dados, como datas e números, e costuma ser
 mais compacto e rápido para análise que o CSV.

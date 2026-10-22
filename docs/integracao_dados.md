@@ -1,6 +1,35 @@
 # Integração dos dados e preparação do PLD D+1
 
-Este documento explica a etapa implementada em `src/merge.py`. Ela reúne os
+## Etapa horária multi-horizonte
+
+O fluxo diário descrito abaixo continua disponível. Com os CSVs horários da
+CCEE, `pld integrate` também chama `integrate_hourly_datasets()` e
+`prepare_multi_horizon_targets()`.
+
+`integrate_hourly_datasets()` começa com uma cópia do PLD horário. O balanço
+entra por `instante + submercado` (`one_to_one`); carga, EAR e ENA entram por
+`data + submercado` (`many_to_one`, porque as 24 horas consultam o mesmo dia).
+Antes de cada junção, um `outer merge` com `_merge` conta `left_only` e
+`right_only`. A junção final é sempre `left`, para nenhuma observação de PLD
+desaparecer e nenhuma data exclusiva do ONS virar alvo. As colunas ONS do
+mesmo instante são diagnósticas, não features disponíveis para prever esse
+instante.
+
+O resultado é `data/processed/pld_horario_integrado.parquet`. Em separado,
+`prepare_multi_horizon_targets()` constrói uma grade com emissão, hora-alvo e
+quatro submercados. Para 12h de D-1, o `horizon` vai de 12 a 35. Um `merge`
+por `target_time + submercado` consulta o PLD oficial; se a hora não existe,
+`target_pld` fica nulo, sem deslocar a série por `shift()`. O arquivo é
+`data/processed/pld_horario_alvos.parquet`. `--days-ahead 3` inclui D+2 e
+D+3 (até H+83). Datas futuras além do fim publicado também ficam nulas.
+
+Exemplo: uma emissão em 09/01 às 12h para 10/01 às 00h tem horizonte 12;
+para 10/01 às 23h, horizonte 35. Isso difere de contar linhas em sequência:
+uma hora faltante não altera a chave da próxima.
+
+Este documento explica a etapa diária implementada em
+`src/pld_forecast/data/integration.py` (`src/merge.py` continua como caminho
+de compatibilidade). Ela reúne os
 cinco datasets consolidados e prepara uma variável-alvo para uma futura previsão
 diária do PLD.
 

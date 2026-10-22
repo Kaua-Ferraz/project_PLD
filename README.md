@@ -1,8 +1,10 @@
-# Previsão do PLD Médio Diário
+# Sistema de previsão do PLD
 
-Este projeto reúne dados públicos do setor elétrico brasileiro para, futuramente,
-desenvolver um modelo de previsão do **Preço de Liquidação das Diferenças (PLD)**
-médio diário.
+Este projeto reúne dados públicos do setor elétrico brasileiro para a pesquisa
+"Desenvolvimento e avaliação de um sistema computacional para previsão
+multi-horizonte do PLD horário e análise da contribuição de variáveis operativas
+e hidrológicas". A pipeline diária D+1 continua disponível enquanto a base
+horária e seu protocolo de disponibilidade temporal são construídos.
 
 O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 
@@ -16,8 +18,14 @@ O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 8. criação de features com lags de calendário, divisão cronológica e baseline;
 9. testes de estrutura, qualidade e cobertura temporal.
 
-O cenário preparado prevê D+1 às 00h de D. As variáveis verificadas do ONS usam
-D-2 de forma conservadora e provisória. Antes de uma avaliação operacional,
+A evolução horária acrescenta a coleta do PLD horário, snapshots, consolidação,
+integração e features multi-horizonte. O treinamento e a avaliação dos modelos
+serão implementados nas etapas seguintes.
+
+No fluxo diário legado, o cenário prevê D+1 às 00h de D. No fluxo horário
+principal, emite às 12h de D-1 para as 24 horas de D. As variáveis verificadas
+do ONS usam uma defasagem configurável, por padrão dois dias antes da data de
+emissão, de forma conservadora e provisória. Antes de uma avaliação operacional,
 ainda será necessário confirmar a disponibilidade ponto a ponto com snapshots
 de publicação da CCEE e do ONS.
 
@@ -26,43 +34,44 @@ de publicação da CCEE e do ONS.
 | Fonte | Dataset | Arquivo consolidado | Granularidade |
 | --- | --- | --- | --- |
 | CCEE | PLD médio diário | `data/interim/pld.parquet` | diária por submercado |
+| CCEE | PLD horário | `data/interim/pld_horario.parquet` | horária por submercado |
 | ONS | Carga de energia | `data/interim/carga_energia.parquet` | diária por submercado |
 | ONS | Energia Armazenada (EAR) | `data/interim/ear.parquet` | diária por submercado |
 | ONS | Energia Natural Afluente (ENA) | `data/interim/ena.parquet` | diária por submercado |
 | ONS | Balanço de energia por subsistema | `data/interim/balanco_energia.parquet` | diária por submercado, calculada a partir dos registros horários |
+| ONS | Balanço diário (nome novo) | `data/interim/balanco_energia_diario.parquet` | diária por submercado; o nome antigo acima segue disponível |
+| ONS | Balanço horário preservado | `data/interim/balanco_energia_horario.parquet` | horária por submercado |
 
-Os arquivos originais permanecem em `data/raw/`. Eles não são sobrescritos pelas
-etapas de limpeza. Os arquivos consolidados são gravados em `data/interim/`.
-Os resultados da integração ficam em `data/processed/`. Essas três pastas de
-dados não são versionadas pelo Git.
+Os arquivos originais permanecem em `data/raw/`. Um `pld collect --snapshot`
+também registra cópias imutáveis e metadados em `data/snapshots/`. As etapas de
+limpeza não alteram o bruto. Os consolidados ficam em `data/interim/` e a
+integração diária atual em `data/processed/`. Essas pastas não são versionadas.
 
 ## Estrutura principal
 
 ```text
 project_PLD/
 ├── data/
-│   ├── raw/                    # CSVs originais baixados dos portais
-│   ├── interim/                # Parquets limpos e consolidados
-│   └── processed/              # histórico integrado e alvo D+1
+│   ├── raw/                    # CSVs atuais e backups
+│   ├── snapshots/              # cópias capturadas com horário e SHA-256
+│   ├── interim/                # Parquets diários e horários por fonte
+│   └── processed/              # integração, alvos e features diárias/horárias
 ├── docs/
 │   ├── coleta_dados.md         # funcionamento do coletor CKAN
 │   ├── limpeza_transformacao.md # limpeza e consolidação dos datasets
 │   ├── integracao_dados.md      # merge e preparação inicial do alvo D+1
 │   └── pre_modelagem.md         # disponibilidade, features e divisão temporal
 ├── src/
-│   ├── data/
-│   │   ├── ccee.py             # configuração da coleta da CCEE
-│   │   ├── ckan.py             # cliente compartilhado para portais CKAN
-│   │   ├── ons.py              # configuração da coleta do ONS
-│   │   └── validate.py         # validações aplicadas durante o download
-│   ├── clean.py                # limpeza individual de cada DataFrame
-│   ├── features.py             # lags, calendário, baseline e divisão temporal
-│   ├── merge.py                # integração e preparação do alvo D+1
-│   ├── pipeline.py             # operações compartilhadas do pipeline
-│   ├── transform.py            # configuração da consolidação de cada dataset
-│   └── update.py               # ponto de entrada da coleta
+│   ├── pld_forecast/
+│   │   ├── collectors/         # CKAN, CCEE, ONS, validação e snapshots
+│   │   ├── data/               # disponibilidade, limpeza e consolidação
+│   │   ├── features/           # features diárias e horárias
+│   │   ├── config.py           # corte temporal e horizontes
+│   │   └── cli.py              # comando pld
+│   ├── data/ e módulos antigos # caminhos de compatibilidade
+│   └── update.py               # comando de coleta antigo
 ├── tests/                      # testes de consolidação e comparação
-└── requirements.txt
+└── pyproject.toml              # instalação e comando pld
 ```
 
 ## Instalação
@@ -74,10 +83,10 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-Instale as dependências:
+Instale o pacote e as dependências de desenvolvimento:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 ```
 
 ## Fluxo de execução
@@ -87,13 +96,13 @@ python -m pip install -r requirements.txt
 Para baixar ou atualizar todo o histórico configurado:
 
 ```powershell
-python -m src.update historical
+pld collect historical --snapshot
 ```
 
 Para a atualização diária:
 
 ```powershell
-python -m src.update daily
+pld collect daily --snapshot
 ```
 
 O coletor compara o conteúdo remoto com o arquivo local. Quando não existe
@@ -105,34 +114,45 @@ alteração, o arquivo não é regravado. Quando existe alteração, a versão a
 Depois da coleta, execute:
 
 ```powershell
-python src\transform.py
+pld transform
 ```
 
 Esse script lê os CSVs anuais de `data/raw/`, aplica as funções de `src/clean.py`,
 concatena os anos, verifica duplicatas e conflitos, ordena os registros e grava
-os cinco arquivos Parquet em `data/interim/`.
+os cinco Parquets diários e o balanço horário em `data/interim/`. O Parquet de
+PLD horário é criado quando seus CSVs estão disponíveis localmente.
 
 ### 3. Integrar os datasets e preparar o alvo D+1
 
 ```powershell
-python src\merge.py
+pld integrate
 ```
 
-Esse comando cria dois arquivos:
+O fluxo diário continua criando dois arquivos:
 
 - `data/processed/pld_integrado.parquet`: histórico integrado dos cinco
   datasets, mantendo todas as linhas do PLD;
 - `data/processed/pld_treino.parquet`: mesmo histórico com `data_alvo` e
   `pld_d1`. Apesar do nome, ele ainda não está pronto para treinar modelos.
 
+Se `pld_horario.parquet` estiver disponível, o mesmo comando cria
+`pld_horario_integrado.parquet` e `pld_horario_alvos.parquet`. Por padrão,
+cada emissão às 12h de D-1 tem 24 alvos de D (H+12 a H+35). Para incluir D+2
+e D+3, use `pld integrate --days-ahead 3`. A opção
+`--first-target-day-offset 0 --issue-hour 0` permite emitir às 00h do próprio
+dia-alvo. Horas não publicadas ficam `NaN`.
+
 ### 4. Preparar as features
 
 ```powershell
-python -m src.features
+pld features
 ```
 
-Esse comando cria `data/processed/pld_features.parquet`, sem alterar os Parquets
-intermediários, preencher valores ausentes ou remover linhas.
+Esse comando cria `data/processed/pld_features.parquet` e, quando existem alvos
+horários, `pld_horario_features.parquet` e
+`pld_horario_features_diagnostico.parquet`. Não altera os Parquets intermediários,
+preenche ausências nem remove linhas. `--ons-lag-days 2` é a hipótese histórica
+conservadora padrão.
 
 ### 5. Executar os testes
 
@@ -149,6 +169,13 @@ python -m pytest -q -s
 Os testes não corrigem os dados. Eles tornam inconsistências visíveis para que a
 decisão de tratamento possa ser analisada e justificada.
 
+Os comandos antigos (`python -m src.update`, `python -m src.transform`,
+`python -m src.merge`, `python -m src.features`) continuam disponíveis. Nesta
+etapa, `pld integrate` e `pld features` executam também o fluxo horário quando
+existem CSVs horários da CCEE;
+`pld backtest`, `pld forecast` e `pld evaluate` informam que ainda não foram
+implementados.
+
 ## Documentação
 
 - [Coleta incremental de dados CKAN](docs/coleta_dados.md): explica downloads,
@@ -161,10 +188,12 @@ decisão de tratamento possa ser analisada e justificada.
 - [Pré-modelagem e disponibilidade temporal](docs/pre_modelagem.md): documenta
   o cenário das 00h, as incertezas de publicação, os lags, os `NaN`, a divisão
   cronológica e o baseline.
+- [Protocolo temporal e snapshots](docs/protocolo_temporal.md): explica o novo
+  cenário horário, as três datas e as regras contra vazamento.
 
 ## Próximas etapas
 
-- confirmar a disponibilidade histórica com snapshots de publicação;
+- acumular snapshots prospectivos para comprovar disponibilidade real;
 - decidir o tratamento das linhas incompletas sem ocultar suas causas;
 - congelar o período de teste e definir métricas de avaliação;
 - treinar e avaliar os modelos de previsão do PLD.

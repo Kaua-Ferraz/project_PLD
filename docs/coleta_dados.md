@@ -14,6 +14,7 @@ são explicadas em [Limpeza e transformação dos dados](limpeza_transformacao.m
 | Portal | Identificador do dataset | Conteúdo |
 | --- | --- | --- |
 | CCEE | `pld_media_diaria` | PLD médio diário por submercado |
+| CCEE | `pld_horario` | PLD horário por submercado |
 | ONS | `carga-energia` | carga de energia diária por subsistema |
 | ONS | `ear-diario-por-subsistema` | Energia Armazenada diária |
 | ONS | `ena-diario-por-subsistema` | Energia Natural Afluente diária |
@@ -27,10 +28,11 @@ silenciosa de valores.
 
 O fluxo original do coletor foi mantido de propósito. A melhor ordem de leitura é:
 
-1. Abra `src/data/ccee.py`. Observe o laço que cria `CKANClient`, chama `get_resources()` e depois chama `download_resource()` para cada CSV.
-2. Leia `get_resources()` em `src/data/ckan.py`. Ele faz uma requisição para `package_show`, valida o JSON e reutiliza a sessão HTTP.
+1. Abra `src/pld_forecast/collectors/ccee.py`. Observe o laço que cria `CKANClient`, chama `get_resources()` e depois chama `download_resource()` para cada CSV.
+2. Leia `get_resources()` em `src/pld_forecast/collectors/ckan.py`. Ele faz uma requisição para `package_show`, valida o JSON e reutiliza a sessão HTTP.
 3. Leia `download_resource()` aos poucos. O método está dividido por comentários: decisão de baixar, download temporário, comparação de hash, validação, backup e troca.
-4. Por fim, abra `src/data/validate.py`. As validações foram deixadas fora do cliente porque o cliente CKAN não deve conhecer regras exclusivas do PLD.
+4. Por fim, abra `src/pld_forecast/collectors/validate.py`. As validações foram deixadas fora do cliente porque o cliente CKAN não deve conhecer regras exclusivas do PLD.
+5. Leia `snapshots.py` para ver como uma cópia capturada recebe horário, hash e maior referência realmente presente no CSV.
 
 As funções retornam dicionários simples. Por exemplo, um download retorna `{"status": "downloaded", "path": ..., "backup": ...}`. Isso evita uma hierarquia de classes e permite inspecionar os valores com facilidade durante o estudo ou pelo depurador.
 
@@ -39,42 +41,44 @@ As funções retornam dicionários simples. Por exemplo, um download retorna `{"
 Execute os comandos a partir da raiz do projeto:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 
 # Todos os CSVs desde 2021 e recursos acumulados sem ano no nome ou URL
-python -m src.update historical
+pld collect historical --snapshot
 
 # Recursos do ano atual e recursos acumulados
-python -m src.update daily
+pld collect daily --snapshot
 
 # Ignora o cache e confirma novamente pelo conteúdo
-python -m src.update daily --force
+pld collect daily --force --snapshot
 
 # Limita a execução a um portal
-python -m src.update daily --portal ccee
-python -m src.update historical --portal ons
+pld collect daily --portal ccee --snapshot
+pld collect historical --portal ons --snapshot
 
 # Testes sem dependência obrigatória dos portais externos
 python -m pytest -q
 ```
 
-O diretório de dados pode ser alterado com `--data-dir`. O primeiro ano da coleta histórica pode ser alterado com `--start-year`.
+O diretório de dados pode ser alterado com `--data-dir`. O primeiro ano da coleta histórica pode ser alterado com `--start-year`. Os comandos antigos `python -m src.update` continuam disponíveis.
 
 ## Estrutura do coletor
 
 ```text
-src/
-├── data/
-│   ├── ckan.py       # HTTP, manifesto, hash, download, backup e troca atômica
-│   ├── ccee.py       # datasets e validação específica da CCEE
+src/pld_forecast/
+├── collectors/
+│   ├── ckan.py       # HTTP, manifesto, hash, backup e troca atômica
+│   ├── ccee.py       # PLD diário e horário
 │   ├── ons.py        # datasets do ONS
-│   └── validate.py   # validação geral e do PLD médio diário
-└── update.py          # CLI, logs e status final
+│   ├── validate.py   # validação geral e específica do PLD
+│   └── snapshots.py  # cópias e metadados ex ante
+└── cli.py             # comando pld
 
 tests/                 # testes com sessões e respostas HTTP simuladas
 
 data/
 ├── manifest.json
+├── snapshots/<YYYY-MM-DD_HHMMSS>/
 └── raw/<portal>/<dataset>/
     ├── current/
     └── backups/
@@ -151,6 +155,31 @@ Além das regras gerais, são verificados:
 
 Valores extremos não são removidos automaticamente.
 
+### PLD horário
+
+O esquema foi conferido no [dicionário do PLD horário da CCEE](https://dadosabertos.ccee.org.br/dataset/pld_horario/resource/3f279d6b-1069-42f7-9b0a-217b084729c4).
+
+O dataset horário publica `MES_REFERENCIA`, `SUBMERCADO`,
+`PERIODO_COMERCIALIZACAO`, `DIA`, `HORA` e `PLD_HORA` (R$/MWh). `DIA` pode vir
+como dia do mês ou como `DD/MM/AAAA`; a limpeza interpreta ambas as formas
+usando `MES_REFERENCIA`. `HORA` precisa ser inteira entre 0 e 23. A chave
+lógica é `instante + submercado`. Cópias idênticas recebem a mesma flag e o
+mesmo sufixo de aviso do PLD diário; preços conflitantes bloqueiam o download.
+Lacunas horárias são registradas como avisos e permanecem ausentes.
+
+### Snapshots
+
+Com `--snapshot`, cada recurso selecionado e aceito é copiado para uma pasta
+nova, cujo nome contém o horário UTC da execução. O arquivo JSON ao lado
+registra `collection_time` (captura), `portal`, `dataset_id`, `resource_id`,
+`sha256`, `etag`, `last_modified` e `max_reference_time` (maior instante
+realmente presente no CSV). A gravação exclusiva impede substituir uma cópia
+anterior. Um snapshot criado hoje não prova que o mesmo dado estava disponível
+em uma data histórica; essa diferença é explicada no
+[protocolo temporal](protocolo_temporal.md).
+Como os CSVs podem ser grandes, `data/snapshots/` está no `.gitignore` e deve
+ser preservado separadamente quando fizer parte de um experimento publicado.
+
 ### Duplicatas
 
 Duplicatas completamente idênticas geram um aviso, mas não bloqueiam o download. O arquivo bruto permanece inalterado e recebe o sufixo `_AVISO_DUPLICATAS`.
@@ -181,7 +210,7 @@ Se a mesma chave `DIA + SUBMERCADO` possuir valores diferentes, a validação co
 Depois que os CSVs estiverem em `data/raw/`, execute:
 
 ```powershell
-python src\transform.py
+pld transform
 ```
 
 Esse comando não modifica os arquivos brutos. Ele cria os arquivos consolidados

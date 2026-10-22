@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.clean import clean_balanco
+from src.clean import clean_balanco, clean_balanco_horario
 
 
 def _criar_balanco_horario(datas: list[str]) -> pd.DataFrame:
@@ -70,6 +70,28 @@ def test_clean_balanco_preserva_sinal_do_intercambio():
 
     assert intercambio_sul == -15.0
     assert intercambio_norte == 15.0
+
+
+def test_clean_balanco_horario_preserva_as_24_horas_e_o_sinal():
+    bruto = _criar_balanco_horario(["2021-01-01"])
+    horario = clean_balanco_horario(bruto)
+
+    assert len(horario) == 24 * 4
+    assert not horario.duplicated(subset=["instante", "submercado"]).any()
+    assert str(horario["submercado"].dtype) == "string"
+    assert (horario.loc[
+        horario["submercado"] == "SUL", "intercambio_mwmed"
+    ] == -15.0).all()
+
+
+def test_balanco_horario_consolida_copia_identica_e_bloqueia_conflito():
+    bruto = _criar_balanco_horario(["2021-01-01"])
+    duplicado = pd.concat([bruto, bruto.iloc[[0]]], ignore_index=True)
+    assert len(clean_balanco_horario(duplicado)) == 96
+
+    duplicado.loc[len(duplicado) - 1, "val_carga"] = 999.0
+    with pytest.raises(ValueError, match="valores conflitantes"):
+        clean_balanco_horario(duplicado)
 
 
 def test_consolidacao_balanco():
