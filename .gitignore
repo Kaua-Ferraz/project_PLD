@@ -13,6 +13,7 @@ env/
 
 # Testes, cobertura e ferramentas de análise
 .pytest_cache/
+.pytest-tmp*/
 .coverage
 .coverage.*
 htmlcov/
@@ -38,6 +39,7 @@ data/processed/
 data/external/
 data/manifest.json
 data/manifest.json.corrupt-*
+data/automation/
 *.download
 
 # Jupyter Notebook
@@ -51,6 +53,7 @@ Thumbs.db
 Desktop.ini
 
 # Logs e arquivos temporários
+logs/
 *.log
 *.tmp
 *.temp

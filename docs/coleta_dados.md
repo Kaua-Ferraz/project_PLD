@@ -194,6 +194,10 @@ em uma data histórica; essa diferença é explicada no
 Como os CSVs podem ser grandes, `data/snapshots/` está no `.gitignore` e deve
 ser preservado separadamente quando fizer parte de um experimento publicado.
 
+A execução automática desse mesmo fluxo, incluindo horários, lock, logs,
+retentativas, auditoria de coletas ausentes e estratégia de backup, está descrita
+em [Automação da coleta prospectiva](automacao_coleta.md).
+
 ### Duplicatas
 
 Duplicatas completamente idênticas geram um aviso, mas não bloqueiam o download. O arquivo bruto permanece inalterado e recebe o sufixo `_AVISO_DUPLICATAS`.

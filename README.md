@@ -17,6 +17,8 @@ O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 7. diagnóstico de disponibilidade temporal e risco de vazamento;
 8. criação de features horárias e hidrológicas sem preenchimento silencioso;
 9. testes de estrutura, qualidade e cobertura temporal.
+10. coleta prospectiva automática duas vezes ao dia, com snapshots, logs e
+    auditoria de execuções ausentes.
 
 A camada de dados e features horárias está implementada. O treinamento e a
 avaliação dos modelos serão desenvolvidos nas etapas seguintes.
@@ -57,6 +59,7 @@ project_PLD/
 │   └── processed/              # integração, alvos e features diárias/horárias
 ├── docs/
 │   ├── coleta_dados.md         # funcionamento do coletor CKAN
+│   ├── automacao_coleta.md     # Agendador do Windows, logs e auditoria
 │   ├── limpeza_transformacao.md # limpeza e consolidação dos datasets
 │   ├── integracao_dados.md      # merge e preparação inicial do alvo D+1
 │   └── pre_modelagem.md         # disponibilidade, features e divisão temporal
@@ -70,6 +73,7 @@ project_PLD/
 │   ├── data/ e módulos antigos # caminhos de compatibilidade
 │   └── update.py               # comando de coleta antigo
 ├── tests/                      # testes de consolidação e comparação
+├── scripts/                    # execução e gestão das tarefas do Windows
 └── pyproject.toml              # instalação e comando pld
 ```
 
@@ -103,6 +107,16 @@ Para a atualização diária:
 ```powershell
 pld collect daily --snapshot
 ```
+
+Para instalar a coleta prospectiva automática às 11:45 e 20:30 no Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_scheduled_tasks.ps1
+```
+
+Consulte [Automação da coleta prospectiva](docs/automacao_coleta.md) antes de
+instalar: o documento explica o fuso, o instante real de captura, logs, lock,
+retentativas, auditoria de horários perdidos, backup e gestão das tarefas.
 
 O coletor compara o conteúdo remoto com o arquivo local. Quando não existe
 alteração, o arquivo não é regravado. Quando existe alteração, a versão anterior
@@ -180,6 +194,8 @@ implementados.
 
 - [Coleta incremental de dados CKAN](docs/coleta_dados.md): explica downloads,
   seleção de recursos, manifestos, backups e validações dos arquivos brutos.
+- [Automação da coleta prospectiva](docs/automacao_coleta.md): explica como
+  instalar, verificar, pausar e remover as tarefas diárias do Windows.
 - [Limpeza e transformação dos dados](docs/limpeza_transformacao.md): explica as
   funções de limpeza, a consolidação anual, as variáveis escolhidas, as unidades
   e os testes de qualidade.
