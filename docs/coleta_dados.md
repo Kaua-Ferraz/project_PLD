@@ -6,7 +6,7 @@ Este documento descreve o componente responsável por coletar recursos CSV dos p
 
 Esta etapa termina nos arquivos brutos de `data/raw/`. O coletor verifica se o
 arquivo recebido é utilizável, mas não o adapta para o modelo e não agrega dados.
-A padronização das colunas, a agregação diária e a geração dos arquivos Parquet
+A padronização das colunas, as consolidações diária e horária e a geração dos Parquets
 são explicadas em [Limpeza e transformação dos dados](limpeza_transformacao.md).
 
 ## Datasets coletados
@@ -23,6 +23,20 @@ são explicadas em [Limpeza e transformação dos dados](limpeza_transformacao.m
 Os nomes acima são os identificadores usados pelos respectivos portais CKAN. Os
 recursos anuais selecionados pelo coletor são preservados como CSV, sem correção
 silenciosa de valores.
+
+### Decisão sobre a curva de carga horária
+
+O dataset independente `curva-carga` do ONS foi inspecionado antes de decidir se
+deveria entrar no coletor principal. Em 28.128 chaves comuns de 2026
+(`instante + submercado`), `val_cargaenergiahomwmed` foi exatamente igual a
+`val_carga` do balanço: diferença média e máxima iguais a zero. Como o balanço
+já cobre todo o período do projeto e também traz as quatro fontes de geração,
+o pipeline principal reutiliza `balanco-energia-subsistema` para a carga horária.
+
+Assim, `curva-carga` não foi acrescentado à coleta regular e não cria uma
+segunda feature de carga redundante. `carga-energia` continua sendo coletado
+para compatibilidade com o fluxo diário e para diagnósticos históricos. Essa
+decisão deve ser reavaliada se os schemas ou valores das fontes divergirem.
 
 ## Como estudar a implementação
 

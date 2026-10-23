@@ -1,21 +1,24 @@
 # Pré-modelagem e disponibilidade temporal
 
-## Features horárias da Etapa 2
+## Features horárias — caminho principal
 
 O fluxo diário detalhado abaixo foi preservado. Quando existem alvos horários,
 `pld features` executa também `create_hourly_features()` e cria
 `data/processed/pld_horario_features.parquet`. Cada linha mantém
 `issue_time`, `target_time`, `horizon`, `submercado` e `target_pld`.
 
-- `price.py` consulta o último preço de referência até a emissão, os lags
-  exatos de 24h, 48h e 168h em relação ao alvo e as médias/desvios das
-  janelas anteriores à emissão. Um lag futuro fica nulo, não é antecipado.
+- `price.py` consulta o último preço comprovadamente conhecido, os lags exatos
+  de 24h, 48h e 168h em relação ao alvo e médias/desvios das janelas anteriores
+  à emissão. Um lag cuja referência está no futuro fica nulo, exceto quando
+  `publication_time` ou `collection_time` comprova publicação antecipada.
 - `calendar.py` acrescenta hora-alvo, seno/cosseno da hora, dia da semana,
   fim de semana, mês e a convenção sazonal maio–outubro = seco, novembro–abril
   = úmido. Essa convenção não substitui medições hidrológicas.
-- `load_gen.py` e `hydrology.py` consultam carga, balanço, EAR e ENA nos
-  Parquets consolidados pela data de referência D-2 do dia de emissão. O
-  balanço horário usa a hora do alvo, mas do dia histórico permitido;
+- `load_gen.py` consulta carga e geração diretamente no balanço horário pela
+  data D-2 do dia de emissão e pela mesma hora de relógio do alvo. A carga
+  diária e a média diária do balanço não entram no fluxo principal;
+- `hydrology.py` consulta EAR e ENA diárias em D-2;
+- o balanço horário preserva a hora do alvo no dia histórico permitido;
   intercâmbio conserva o sinal. EAR absoluta (MWmês) e percentual e ENA
   absoluta (MWmed) e percentual da MLT permanecem distintas.
 
@@ -35,7 +38,30 @@ fonte com `collection_time` pode usar esse horário para selecionar somente
 registros já coletados; para repetir isso na pesquisa real é necessário
 materializar os snapshots por emissão.
 
-Este documento explica a etapa diária implementada em
+### Fonte escolhida para a carga
+
+A coluna `carga_balanco_mwmed` é a feature horária principal. A fonte
+independente `curva-carga` foi comparada em 28.128 chaves comuns de 2026 e os
+valores foram exatamente iguais aos do balanço (diferença máxima zero). Manter
+as duas como features criaria redundância sem informação nova. O dataset diário
+`carga-energia` permanece no projeto para compatibilidade e diagnóstico.
+
+### Colunas principais geradas
+
+- identificação: `issue_time`, `target_time`, `horizon`, `submercado`;
+- alvo: `target_pld`;
+- preço: último PLD conhecido, lags 24h/48h/168h e janelas 24h/168h;
+- calendário: hora, seno/cosseno, dia da semana, mês, fim de semana e período
+  hidrológico convencional;
+- operação horária: carga, geração hidráulica, térmica, eólica, solar e
+  intercâmbio do perfil histórico admissível;
+- hidrologia diária: três medidas de EAR e quatro de ENA;
+- auditoria: colunas `_reference_time`, e metadados de publicação/coleta quando
+  disponíveis.
+
+## Apêndice: pré-modelagem diária legada
+
+O restante do documento explica a etapa diária implementada em
 `src/pld_forecast/features/engine.py` (`src/features.py` continua como caminho
 de compatibilidade). Ela valida o
 resultado da integração, define um cenário de previsão, cria features temporais
@@ -46,7 +72,7 @@ Nenhum modelo é treinado. Nenhum `NaN` é preenchido e nenhuma linha é removid
 [Voltar ao README principal](../README.md) ·
 [Ver a integração dos dados](integracao_dados.md)
 
-## 1. Diagnóstico do dataset final
+### 1. Diagnóstico do dataset final diário
 
 Na execução de 12/10/2026, `pld_integrado.parquet` apresentou:
 

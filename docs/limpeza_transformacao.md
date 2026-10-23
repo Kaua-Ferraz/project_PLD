@@ -4,8 +4,7 @@ Este documento explica como os CSVs brutos são validados, padronizados e
 consolidados em arquivos Parquet. A implementação fica em
 `src/pld_forecast/data/clean.py` e `src/pld_forecast/data/transform.py`;
 `src/clean.py` e `src/transform.py` continuam como caminhos de compatibilidade.
-A integração final entre os datasets não faz parte desta etapa, pois ainda está
-em desenvolvimento.
+A integração é uma etapa posterior e já está implementada em `data/integration.py`.
 
 O novo fluxo também preserva o balanço horário em
 `data/interim/balanco_energia_horario.parquet` e consolida o PLD horário em
@@ -50,7 +49,7 @@ Primeiro, faça a coleta conforme explicado em `coleta_dados.md`. Depois, a part
 da raiz do projeto, execute:
 
 ```powershell
-python src\transform.py
+pld transform
 ```
 
 O bloco final de `transform.py` chama, nesta ordem:
@@ -61,6 +60,8 @@ read_carga()
 read_ear()
 read_ena()
 read_balanco()
+read_balanco_horario()
+read_pld_horario()  # quando existem CSVs locais
 ```
 
 Se um arquivo falhar, a mensagem informa qual CSV estava sendo processado e
@@ -69,7 +70,7 @@ problema está na leitura, nas colunas ou nos dados.
 
 ## Operações comuns de limpeza
 
-As cinco funções começam com uma cópia:
+As funções de limpeza começam com uma cópia:
 
 ```python
 df = dataframe.copy()
@@ -111,9 +112,10 @@ Por exemplo, `clean_ear()` continua responsável por saber que a EAR verificada
 não pode superar a EAR máxima. A função genérica sabe apenas verificar estrutura,
 nulos e duplicatas conforme as colunas recebidas.
 
-Essa divisão também prepara o projeto para um futuro PLD horário. O fluxo de
-leitura e consolidação poderá ser reutilizado com outras chaves, como instante e
-submercado. A regra horária ainda não foi implementada nesta etapa.
+Essa divisão é usada tanto nas séries diárias quanto nas horárias. PLD e balanço
+usam a chave `instante + submercado`; carga diária, EAR e ENA usam
+`data + submercado`. As regras horárias já estão implementadas e não dependem da
+posição das linhas no CSV.
 
 ## PLD médio diário
 

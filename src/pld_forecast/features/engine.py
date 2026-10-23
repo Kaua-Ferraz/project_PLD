@@ -1,11 +1,9 @@
-"""Prepara features temporais simples para a futura previsão do PLD D+1.
+"""Cria features para os fluxos horário principal e diário legado.
 
-O cenário adotado nesta etapa é uma previsão feita às 00h do dia D para o
-PLD médio de D+1. O PLD de D já foi divulgado no dia anterior. Para as
-variáveis verificadas do ONS, usamos provisoriamente D-2, pois o horário de
-atualização do portal não garante qual data de referência já está consolidada.
-
-Nenhuma linha é removida e nenhum valor ausente é preenchido neste módulo.
+O cenário principal emite às 12h de D-1 e prevê as 24 horas de D. Carga e
+geração permanecem horárias; EAR e ENA permanecem diárias. Sem evidência de
+publicação histórica, as observações verificadas do ONS usam a hipótese
+conservadora D-2. Nenhuma linha é removida e nenhum NaN é preenchido aqui.
 """
 
 from pathlib import Path
@@ -618,6 +616,7 @@ def create_hourly_features(
     balanco_horario: pd.DataFrame | None = None,
     balanco_diario: pd.DataFrame | None = None,
     ons_lag_days: int | None = DEFAULT_ONS_HISTORICAL_LAG_DAYS,
+    include_daily_compatibility: bool = False,
     save: bool = True,
 ) -> pd.DataFrame:
     """Cria features horárias ex ante a partir dos Parquets consolidados.
@@ -629,11 +628,9 @@ def create_hourly_features(
         targets = pd.read_parquet(PROCESSED_DIRECTORY / "pld_horario_alvos.parquet")
     files = {
         "pld": "pld_horario.parquet",
-        "carga": "carga_energia.parquet",
         "ear": "ear.parquet",
         "ena": "ena.parquet",
         "balanco_horario": "balanco_energia_horario.parquet",
-        "balanco_diario": "balanco_energia_diario.parquet",
     }
     provided = {
         "pld": pld, "carga": carga, "ear": ear, "ena": ena,
@@ -644,6 +641,17 @@ def create_hourly_features(
         for name, filename in files.items()
         for frame in [provided[name]]
     }
+    if include_daily_compatibility:
+        compatibility_files = {
+            "carga": "carga_energia.parquet",
+            "balanco_diario": "balanco_energia_diario.parquet",
+        }
+        for name, filename in compatibility_files.items():
+            sources[name] = (
+                provided[name]
+                if provided[name] is not None
+                else pd.read_parquet(INTERIM_DIRECTORY / filename)
+            )
     validate_input_dataframe(
         targets, {"issue_time", "target_time", "submercado", "horizon", "target_pld"},
         "alvos horários",
@@ -658,8 +666,12 @@ def create_hourly_features(
     result = add_target_calendar(targets)
     result = add_price_features(result, sources["pld"])
     result = add_load_generation_features(
-        result, sources["carga"], sources["balanco_horario"],
-        sources["balanco_diario"], ons_lag_days,
+        result,
+        sources["balanco_horario"],
+        ons_lag_days,
+        carga_diaria=sources.get("carga"),
+        balanco_diario=sources.get("balanco_diario"),
+        include_daily_compatibility=include_daily_compatibility,
     )
     result = add_hydrology_features(
         result, sources["ear"], sources["ena"], ons_lag_days,
@@ -676,17 +688,43 @@ def create_hourly_features(
     if len(result) != len(targets):
         raise ValueError("Features alteraram a quantidade de alvos")
     for column in [name for name in result if name.endswith("_reference_time")]:
-        if (result[column].notna() & (result[column] > result["issue_time"])).any():
+        future_reference = result[column].notna() & (
+            result[column] > result["issue_time"]
+        )
+        if not future_reference.any():
+            continue
+        prefix = column.removesuffix("_reference_time")
+        evidence_columns = [
+            f"{prefix}_{kind}"
+            for kind in ("publication_time", "collection_time")
+            if f"{prefix}_{kind}" in result
+        ]
+        proven = pd.Series(False, index=result.index)
+        if evidence_columns:
+            has_evidence = result[evidence_columns].notna().any(axis=1)
+            valid_evidence = (
+                result[evidence_columns].isna()
+                | result[evidence_columns].le(result["issue_time"], axis=0)
+            ).all(axis=1)
+            proven = has_evidence & valid_evidence
+        if (future_reference & ~proven).any():
             raise ValueError(f"Vazamento temporal em {column}")
     result = sort_dataframe(result, ["issue_time", "target_time", "submercado"])
     if save:
         destination = PROCESSED_DIRECTORY / "pld_horario_features.parquet"
         save_parquet(result, destination)
-        report = summarize_hourly_missing(result, sources["pld"], {
-            name: sources[name] for name in (
-                "carga", "ear", "ena", "balanco_horario", "balanco_diario"
-            )
-        })
+        diagnostic_sources = {
+            name: sources[name]
+            for name in ("ear", "ena", "balanco_horario")
+        }
+        if include_daily_compatibility:
+            diagnostic_sources.update({
+                "carga": sources["carga"],
+                "balanco_diario": sources["balanco_diario"],
+            })
+        report = summarize_hourly_missing(
+            result, sources["pld"], diagnostic_sources
+        )
         save_parquet(
             report, PROCESSED_DIRECTORY / "pld_horario_features_diagnostico.parquet"
         )
@@ -702,8 +740,9 @@ def summarize_hourly_missing(
     """Classifica NaN por cobertura, lacuna, ausência original ou indisponibilidade.
 
     Retorna contagens por coluna e motivo. Não modifica nem remove observações.
-    ``sources`` mapeia nomes (carga, ear, ena, balanco_diario,
-    balanco_horario) aos DataFrames consolidados.
+    ``sources`` mapeia os nomes disponíveis aos DataFrames consolidados. No
+    fluxo principal são EAR, ENA e balanço horário; fontes diárias operativas
+    aparecem somente quando o modo de compatibilidade é solicitado.
     """
     rows = []
     mapping = {"target_pld": (pld, "instante", "target_time", "pld_horario")}
@@ -724,7 +763,9 @@ def summarize_hourly_missing(
         time_column = "instante" if source_name == "balanco_horario" else "data"
         reference = f"{source_name}_reference_time"
         for column in source.columns:
-            if column in {time_column, "submercado", "collection_time"}:
+            if column in {
+                time_column, "submercado", "publication_time", "collection_time"
+            }:
                 continue
             if source_name == "balanco_horario":
                 candidate = next((name for name in features if name.startswith(f"{column}_") and name.endswith("_hora_alvo")), None)

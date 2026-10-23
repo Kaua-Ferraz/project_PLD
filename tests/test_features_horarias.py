@@ -57,29 +57,30 @@ def test_features_nao_consultam_horas_futuras_ou_ons_contemporaneo():
     assert len(result) == 2
     assert result["pld_horario_ultimo"].tolist() == [30.0, 30.0]
     assert (result["pld_horario_media_24h"] < 100).all()
-    assert result["carga_mwmed_lag_2d"].tolist() == [50.0, 50.0]
     assert result["ear_mwmes_lag_2d"].tolist() == [100.0, 100.0]
+    assert result["carga_balanco_mwmed_lag_2d_hora_alvo"].tolist() == [50.0, 50.0]
     assert result["intercambio_mwmed_lag_2d_hora_alvo"].tolist() == [-5.0, -5.0]
     assert result.loc[0, "pld_horario_lag_24h"] == 20.0
     assert pd.isna(result.loc[1, "pld_horario_lag_24h"])
-    assert "carga_mwmed" not in result.columns
+    assert "carga_mwmed_lag_2d" not in result.columns
+    assert not any("media_diaria" in column for column in result.columns)
     for name in result.filter(regex="_reference_time$"):
         assert (result[name].isna() | (result[name] <= result["issue_time"])).all(), name
     assert result["conjunto_temporal"].tolist() == ["teste", "teste"]
     assert result["hora_alvo"].tolist() == [0, 23]
 
 
-def test_horizonte_errado_e_snapshot_posterior_sao_bloqueados():
+def test_horizonte_errado_e_publicacao_posterior_sao_bloqueados():
     frames = example()
     targets = frames[0].copy()
     targets.loc[0, "horizon"] = 11
     with pytest.raises(ValueError, match=r"issue_time \+ horizon"):
         build(targets, *frames[1:])
 
-    carga = frames[2].copy()
-    carga["collection_time"] = pd.Timestamp("2026-01-03 13:00")
-    with pytest.raises(ValueError, match="collection_time posterior"):
-        build(frames[0], frames[1], carga, *frames[3:])
+    balance = frames[5].copy()
+    balance["publication_time"] = pd.Timestamp("2026-01-03 13:00")
+    with pytest.raises(ValueError, match="publication_time posterior"):
+        build(*frames[:5], balance, frames[6])
 
 
 def test_diagnostico_explicita_lacunas_sem_preencher():
@@ -95,7 +96,7 @@ def test_diagnostico_explicita_lacunas_sem_preencher():
 
 def test_snapshot_permitem_selecionar_ultimo_dia_realmente_coletado():
     frames = list(example())
-    for index in (2, 3, 4, 6):
+    for index in (3, 4):
         frames[index] = frames[index].copy()
         frames[index]["collection_time"] = pd.to_datetime([
             "2026-01-03 11:00", "2026-01-03 13:00",
@@ -106,15 +107,14 @@ def test_snapshot_permitem_selecionar_ultimo_dia_realmente_coletado():
         *frames[:5], balanco_horario=frames[5], balanco_diario=frames[6],
         ons_lag_days=None, save=False,
     )
-    assert result["carga_mwmed_disponivel"].tolist() == [50.0, 50.0]
     assert result["ear_mwmes_disponivel"].tolist() == [100.0, 100.0]
     assert result["intercambio_mwmed_disponivel_hora_alvo"].tolist() == [-5.0, -5.0]
-    assert (result["carga_collection_time"] <= result["issue_time"]).all()
+    assert (result["ear_collection_time"] <= result["issue_time"]).all()
 
 
 def test_snapshot_sem_publicacao_antes_da_emissao_preserva_nan():
     frames = list(example())
-    for index in (2, 3, 4, 6):
+    for index in (3, 4):
         frames[index] = frames[index].copy()
         frames[index]["collection_time"] = pd.Timestamp("2026-01-03 13:00")
     frames[5] = frames[5].copy()
@@ -123,8 +123,33 @@ def test_snapshot_sem_publicacao_antes_da_emissao_preserva_nan():
         *frames[:5], balanco_horario=frames[5], balanco_diario=frames[6],
         ons_lag_days=None, save=False,
     )
-    assert result["carga_mwmed_disponivel"].isna().all()
     assert result["ear_mwmes_disponivel"].isna().all()
+    assert result["carga_balanco_mwmed_disponivel_hora_alvo"].isna().all()
+
+
+def test_pld_futuro_so_e_usado_com_publicacao_comprovada():
+    frames = list(example())
+    pld = frames[1].copy()
+    pld["publication_time"] = pd.NaT
+    published = pd.DataFrame({
+        "instante": [pd.Timestamp("2026-01-03 23:00")],
+        "submercado": ["NORTE"],
+        "pld_horario": [77.0],
+        "publication_time": [pd.Timestamp("2026-01-03 11:00")],
+    })
+    frames[1] = pd.concat([pld, published], ignore_index=True)
+
+    result = build(*frames)
+
+    assert result.loc[1, "pld_horario_lag_24h"] == 77.0
+    assert (
+        result.loc[1, "pld_horario_lag_24h_reference_time"]
+        > result.loc[1, "issue_time"]
+    )
+    assert (
+        result.loc[1, "pld_horario_lag_24h_publication_time"]
+        <= result.loc[1, "issue_time"]
+    )
 
 
 def test_exporta_features_e_diagnostico_sem_apagar_nan(tmp_path, monkeypatch):

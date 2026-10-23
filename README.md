@@ -3,8 +3,8 @@
 Este projeto reúne dados públicos do setor elétrico brasileiro para a pesquisa
 "Desenvolvimento e avaliação de um sistema computacional para previsão
 multi-horizonte do PLD horário e análise da contribuição de variáveis operativas
-e hidrológicas". A pipeline diária D+1 continua disponível enquanto a base
-horária e seu protocolo de disponibilidade temporal são construídos.
+e hidrológicas". O fluxo horário multi-horizonte é o caminho principal; a
+pipeline diária D+1 continua disponível para compatibilidade.
 
 O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 
@@ -12,15 +12,14 @@ O trabalho está sendo construído em etapas. Atualmente, o projeto já realiza:
 2. validação e preservação dos dados brutos;
 3. limpeza e padronização de cada dataset;
 4. consolidação dos arquivos anuais em arquivos Parquet;
-5. integração dos cinco datasets usando o PLD como histórico principal;
-6. criação explícita da variável-alvo PLD D+1;
+5. integração horária de PLD, carga, geração, EAR e ENA;
+6. criação explícita dos 24 alvos H+12 a H+35 por dia e submercado;
 7. diagnóstico de disponibilidade temporal e risco de vazamento;
-8. criação de features com lags de calendário, divisão cronológica e baseline;
+8. criação de features horárias e hidrológicas sem preenchimento silencioso;
 9. testes de estrutura, qualidade e cobertura temporal.
 
-A evolução horária acrescenta a coleta do PLD horário, snapshots, consolidação,
-integração e features multi-horizonte. O treinamento e a avaliação dos modelos
-serão implementados nas etapas seguintes.
+A camada de dados e features horárias está implementada. O treinamento e a
+avaliação dos modelos serão desenvolvidos nas etapas seguintes.
 
 No fluxo diário legado, o cenário prevê D+1 às 00h de D. No fluxo horário
 principal, emite às 12h de D-1 para as 24 horas de D. As variáveis verificadas
@@ -35,17 +34,17 @@ de publicação da CCEE e do ONS.
 | --- | --- | --- | --- |
 | CCEE | PLD médio diário | `data/interim/pld.parquet` | diária por submercado |
 | CCEE | PLD horário | `data/interim/pld_horario.parquet` | horária por submercado |
-| ONS | Carga de energia | `data/interim/carga_energia.parquet` | diária por submercado |
+| ONS | Carga de energia legada | `data/interim/carga_energia.parquet` | diária por submercado |
 | ONS | Energia Armazenada (EAR) | `data/interim/ear.parquet` | diária por submercado |
 | ONS | Energia Natural Afluente (ENA) | `data/interim/ena.parquet` | diária por submercado |
 | ONS | Balanço de energia por subsistema | `data/interim/balanco_energia.parquet` | diária por submercado, calculada a partir dos registros horários |
 | ONS | Balanço diário (nome novo) | `data/interim/balanco_energia_diario.parquet` | diária por submercado; o nome antigo acima segue disponível |
-| ONS | Balanço horário preservado | `data/interim/balanco_energia_horario.parquet` | horária por submercado |
+| ONS | Balanço horário principal | `data/interim/balanco_energia_horario.parquet` | carga, geração e intercâmbio horários por submercado |
 
 Os arquivos originais permanecem em `data/raw/`. Um `pld collect --snapshot`
 também registra cópias imutáveis e metadados em `data/snapshots/`. As etapas de
-limpeza não alteram o bruto. Os consolidados ficam em `data/interim/` e a
-integração diária atual em `data/processed/`. Essas pastas não são versionadas.
+limpeza não alteram o bruto. Os consolidados ficam em `data/interim/` e as
+integrações, alvos e features em `data/processed/`. Essas pastas não são versionadas.
 
 ## Estrutura principal
 
@@ -122,7 +121,7 @@ concatena os anos, verifica duplicatas e conflitos, ordena os registros e grava
 os cinco Parquets diários e o balanço horário em `data/interim/`. O Parquet de
 PLD horário é criado quando seus CSVs estão disponíveis localmente.
 
-### 3. Integrar os datasets e preparar o alvo D+1
+### 3. Integrar os datasets e preparar os alvos horários
 
 ```powershell
 pld integrate
@@ -152,7 +151,8 @@ Esse comando cria `data/processed/pld_features.parquet` e, quando existem alvos
 horários, `pld_horario_features.parquet` e
 `pld_horario_features_diagnostico.parquet`. Não altera os Parquets intermediários,
 preenche ausências nem remove linhas. `--ons-lag-days 2` é a hipótese histórica
-conservadora padrão.
+conservadora padrão. No fluxo principal, carga e geração vêm do balanço horário;
+EAR e ENA continuam diárias. A carga diária não é duplicada nas features.
 
 ### 5. Executar os testes
 
@@ -183,13 +183,12 @@ implementados.
 - [Limpeza e transformação dos dados](docs/limpeza_transformacao.md): explica as
   funções de limpeza, a consolidação anual, as variáveis escolhidas, as unidades
   e os testes de qualidade.
-- [Integração dos dados e alvo D+1](docs/integracao_dados.md): explica o merge,
-  as ausências encontradas, a criação do alvo e o risco de vazamento temporal.
+- [Integração horária e fluxo legado](docs/integracao_dados.md): explica os
+  merges, a grade multi-horizonte e a preservação do fluxo diário.
 - [Pré-modelagem e disponibilidade temporal](docs/pre_modelagem.md): documenta
-  o cenário das 00h, as incertezas de publicação, os lags, os `NaN`, a divisão
-  cronológica e o baseline.
+  o cenário horário, as features, os `NaN`, a divisão cronológica e as limitações.
 - [Protocolo temporal e snapshots](docs/protocolo_temporal.md): explica o novo
-  cenário horário, as três datas e as regras contra vazamento.
+  cenário horário, os cinco tempos e as regras contra vazamento.
 
 ## Próximas etapas
 

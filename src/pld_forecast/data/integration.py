@@ -292,21 +292,23 @@ def integrate_hourly_datasets(
     ena: pd.DataFrame | None = None,
     save: bool = True,
 ) -> pd.DataFrame:
-    """Integra fontes horárias e diárias sem criar alvos nem perder PLD.
+    """Integra PLD e operação horários com EAR e ENA diárias.
 
     Valores ONS do próprio alvo ficam neste arquivo apenas para diagnóstico.
     A engenharia de features consulta novamente as fontes com datas anteriores
-    à emissão; ela nunca utiliza diretamente essas colunas contemporâneas.
+    à emissão; ela nunca utiliza diretamente essas colunas contemporâneas. A
+    carga diária só entra quando passada explicitamente, para compatibilidade.
     """
     root = Path(__file__).resolve().parents[3]
     interim = root / "data" / "interim"
     sources = {
         "PLD horário": pld if pld is not None else pd.read_parquet(interim / "pld_horario.parquet"),
         "Balanço horário": balanco if balanco is not None else pd.read_parquet(interim / "balanco_energia_horario.parquet"),
-        "Carga": carga if carga is not None else pd.read_parquet(interim / "carga_energia.parquet"),
         "EAR": ear if ear is not None else pd.read_parquet(interim / "ear.parquet"),
         "ENA": ena if ena is not None else pd.read_parquet(interim / "ena.parquet"),
     }
+    if carga is not None:
+        sources["Carga diária (compatibilidade)"] = carga
     hourly_keys = ["instante", "submercado"]
     daily_keys = ["data", "submercado"]
     for name, source in sources.items():

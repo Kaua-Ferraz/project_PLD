@@ -35,6 +35,18 @@ def test_integracao_preserva_pld_e_nao_cria_alvo_ons():
     assert not (result["instante"] == "2026-01-03").any()
 
 
+def test_integracao_principal_nao_duplica_carga_diaria():
+    pld, balance, _, ear, ena = example_sources()
+    balance["carga_balanco_mwmed"] = [50.0, 60.0]
+    result = integrate_hourly_datasets(
+        pld, balance, None, ear, ena, save=False
+    )
+    assert "carga_mwmed" not in result.columns
+    assert "carga_balanco_mwmed" in result.columns
+    assert "intercambio_mwmed" in result.columns
+    assert len(result) == len(pld)
+
+
 def test_alvos_24h_guardam_lacuna_e_horizontes_exatos():
     pld, *_ = example_sources()
     result = prepare_multi_horizon_targets(pld, submarkets=["NORTE"], save=False)

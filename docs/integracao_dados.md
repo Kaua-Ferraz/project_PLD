@@ -1,14 +1,18 @@
-# Integração dos dados e preparação do PLD D+1
+# Integração horária multi-horizonte e fluxo diário legado
 
 ## Etapa horária multi-horizonte
 
-O fluxo diário descrito abaixo continua disponível. Com os CSVs horários da
-CCEE, `pld integrate` também chama `integrate_hourly_datasets()` e
+Este é o caminho principal da pesquisa. O fluxo diário descrito no apêndice
+continua disponível apenas para compatibilidade. Com os CSVs da CCEE,
+`pld integrate` chama `integrate_hourly_datasets()` e
 `prepare_multi_horizon_targets()`.
 
-`integrate_hourly_datasets()` começa com uma cópia do PLD horário. O balanço
-entra por `instante + submercado` (`one_to_one`); carga, EAR e ENA entram por
-`data + submercado` (`many_to_one`, porque as 24 horas consultam o mesmo dia).
+`integrate_hourly_datasets()` começa com uma cópia do PLD horário. O balanço,
+incluindo sua carga horária, entra por `instante + submercado` (`one_to_one`);
+EAR e ENA entram por `data + submercado` (`many_to_one`, porque as 24 horas do
+dia compartilham o indicador diário). A carga diária só é aceita quando passada
+explicitamente à função para reproduzir uma análise legada; o comando normal
+não a inclui no dataset horário.
 Antes de cada junção, um `outer merge` com `_merge` conta `left_only` e
 `right_only`. A junção final é sempre `left`, para nenhuma observação de PLD
 desaparecer e nenhuma data exclusiva do ONS virar alvo. As colunas ONS do
@@ -27,21 +31,43 @@ Exemplo: uma emissão em 09/01 às 12h para 10/01 às 00h tem horizonte 12;
 para 10/01 às 23h, horizonte 35. Isso difere de contar linhas em sequência:
 uma hora faltante não altera a chave da próxima.
 
-Este documento explica a etapa diária implementada em
-`src/pld_forecast/data/integration.py` (`src/merge.py` continua como caminho
-de compatibilidade). Ela reúne os
-cinco datasets consolidados e prepara uma variável-alvo para uma futura previsão
-diária do PLD.
-
-O resultado ainda **não é um dataset pronto para Machine Learning**. A integração
-organiza o histórico, mas a disponibilidade temporal de cada variável precisa ser
-estudada antes do treinamento.
+O integrado contém valores contemporâneos do ONS para diagnóstico e análise
+exploratória. Ele não é entregue diretamente ao modelo: as features são
+reconsultadas com as regras temporais descritas em `protocolo_temporal.md`.
 
 [Voltar ao README principal](../README.md) ·
 [Ver a limpeza e transformação](limpeza_transformacao.md) ·
 [Ver a pré-modelagem](pre_modelagem.md)
 
-## Arquivos de entrada e saída
+Entradas principais em `data/interim/`:
+
+| Arquivo | Frequência | Uso |
+| --- | --- | --- |
+| `pld_horario.parquet` | horária | âncora e variável-alvo |
+| `balanco_energia_horario.parquet` | horária | carga, gerações e intercâmbio |
+| `ear.parquet` | diária | EAR máxima, absoluta e percentual |
+| `ena.parquet` | diária | ENA bruta/armazenável absoluta e % MLT |
+
+Saídas principais:
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `pld_horario_integrado.parquet` | histórico contemporâneo para diagnóstico |
+| `pld_horario_alvos.parquet` | grade longa `issue_time`, `target_time`, `horizon`, `submercado`, `target_pld` |
+
+```powershell
+pld integrate
+```
+
+O cenário padrão emite às 12h de D-1 e gera exatamente 24 alvos por dia e
+submercado, de H+12 a H+35. Horas sem PLD oficial permanecem nulas.
+
+## Apêndice: integração diária legada
+
+As seções abaixo documentam `merge_datasets()` e `prepare_pld_d1()`. Elas são
+mantidas para reprodutibilidade, mas não definem mais o objetivo principal.
+
+### Arquivos de entrada e saída
 
 Entradas, todas em `data/interim/`:
 

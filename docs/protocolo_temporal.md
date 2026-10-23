@@ -3,25 +3,31 @@
 [Voltar ao README](../README.md)
 
 Uma previsão precisa usar apenas o que se sabia no momento em que foi emitida.
-Por isso, guardamos três horários distintos:
+Por isso, distinguimos cinco horários:
 
 | Campo | Pergunta respondida | Exemplo |
 | --- | --- | --- |
 | `reference_time` | A que hora o valor se refere? | PLD de 10/01 às 08h |
+| `publication_time` | Quando a fonte tornou o valor disponível? | 09/01 às 10h |
 | `collection_time` | Quando capturamos o arquivo que contém esse valor? | 09/01 às 10h |
 | `issue_time` | Quando a previsão foi emitida? | 09/01 às 12h |
+| `target_time` | Para qual hora o PLD é previsto? | 10/01 às 08h |
 
 O cenário horário inicial usa `issue_time` às 12h de D-1 para prever as 24
 horas de D. As horas previstas vão de H+12 a H+35. O horário pode ser mudado
 com `issue_time_for_target()` em `src/pld_forecast/config.py`.
 
-`validate_availability()` bloqueia `reference_time > issue_time` e
-`collection_time > issue_time`. Sem snapshot histórico, ela exige uma
-defasagem explícita. Por exemplo, com emissão às 12h de 09/01 e lag histórico
-de dois dias para o ONS, referências até 07/01 passam; 08/01 não passa. Essa
-regra é uma **hipótese conservadora**, não uma prova do horário real de
-publicação. Os snapshots capturados prospectivamente poderão fornecer essa
-prova nas próximas etapas.
+`validate_availability()` bloqueia publicação ou coleta posterior à emissão.
+Sem `publication_time`, `collection_time` ou snapshot histórico, ela exige uma
+defasagem explícita. Uma referência posterior à emissão só é aceita quando uma
+dessas evidências comprova que o valor já estava disponível — situação possível
+para um PLD futuro oficialmente divulgado. A feature nunca usa o próprio
+`target_pld`; a evidência apenas pode liberar um lag de preço cuja referência é
+posterior à emissão.
+
+Para o ONS histórico consolidado, ainda usamos D-2. Com emissão às 12h de 09/01,
+referências até 07/01 passam e 08/01 não passa. Essa regra é uma **hipótese
+conservadora**, não uma prova do horário real de publicação.
 
 No código, a conta é uma comparação de datas de calendário:
 
@@ -41,17 +47,20 @@ a previsão e a avaliação dos modelos são etapas seguintes.
 
 Na preparação horária, `target_time = issue_time + horizon` é conferido em
 cada linha. Para 12h de D-1, H+12..H+35 representam as 24 horas de D.
-O lag de PLD em `target_time - 24h` só entra se sua referência for anterior
-ou igual à emissão. Por isso, H+35 não recebe esse lag em uma emissão H+0
-às 12h; o valor futuro fica nulo com diagnóstico
-`indisponivel_na_emissao`. Carga, EAR, ENA e balanço usam D-2 do dia de
-emissão no backtest histórico. Quando uma fonte de teste inclui
-`collection_time`, o código também bloqueia coletas posteriores à emissão.
+O lag de PLD em `target_time - 24h` só entra se sua referência for anterior ou
+igual à emissão, ou se `publication_time`/`collection_time` comprovar uma
+publicação antecipada. Sem essa prova, H+35 não recebe o lag de 24h e o valor
+fica nulo com diagnóstico `indisponivel_na_emissao`.
+
+Carga e geração consultam o balanço **horário** em D-2 do dia de emissão e na
+mesma hora de relógio do alvo. EAR e ENA consultam a observação diária de D-2.
+O valor contemporâneo integrado nunca é copiado automaticamente para a feature.
 
 Importante: os Parquets históricos consolidados não carregam a data de cada
 publicação ou revisão passada. Logo, D-2 continua sendo hipótese conservadora,
 não prova de disponibilidade ex ante nem proteção completa contra revisões.
-O mesmo vale para o preço horário histórico consultado pela referência
-`<= issue_time`. Uma avaliação operacional definitiva exigirá reconstrução
-por snapshots de cada emissão. O arquivo integrado preserva valores ONS do
-instante-alvo apenas para diagnóstico; a feature engine não os copia.
+Uma avaliação operacional definitiva ainda exigirá materializar as versões dos
+snapshots por emissão. O mecanismo atual já sabe validar `publication_time` e
+`collection_time`, mas os Parquets consolidados correntes não carregam todo o
+histórico de revisões. O integrado preserva valores ONS do instante-alvo apenas
+para diagnóstico; a feature engine não os copia.
